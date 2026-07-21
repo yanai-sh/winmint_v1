@@ -551,9 +551,17 @@ function Write-WinMintVmManagedRunState {
         $null = New-Item -ItemType Directory -Path $dir -Force
     }
     if ($State -is [hashtable]) { $State['updatedAt'] = (Get-Date).ToString('o') }
-    $tmp = "$Path.tmp"
+    # Unique tmp + File.Move overwrite: starter and worker both write managed-run.json.
+    # A shared "$Path.tmp" makes Move-Item -Force throw ERROR_ALREADY_EXISTS under race.
+    $tmp = Join-Path $dir ("managed-run.{0}.{1}.tmp" -f $PID, [guid]::NewGuid().ToString('N'))
     ($State | ConvertTo-Json -Depth 8) | Set-Content -LiteralPath $tmp -Encoding UTF8
-    Move-Item -LiteralPath $tmp -Destination $Path -Force
+    try {
+        [System.IO.File]::Move($tmp, $Path, $true)
+    }
+    catch {
+        Remove-Item -LiteralPath $tmp -Force -ErrorAction SilentlyContinue
+        throw
+    }
 }
 
 function Stop-WinMintVmProcessTree {

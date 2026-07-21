@@ -144,6 +144,11 @@ Describe 'Shell pins and Terminal profiles contract' {
         $LASTEXITCODE | Should -Be 0
     }
 
+    It 'Test-VmManagedRunStateWrite.ps1 exits 0' {
+        & (Join-Path $script:Root 'tests\contract\Test-VmManagedRunStateWrite.ps1')
+        $LASTEXITCODE | Should -Be 0
+    }
+
     It 'Test-VmSetupCompleteEvidence.ps1 exits 0' {
         & (Join-Path $script:Root 'tests\contract\Test-VmSetupCompleteEvidence.ps1')
         $LASTEXITCODE | Should -Be 0
