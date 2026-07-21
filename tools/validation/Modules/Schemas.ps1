@@ -11,7 +11,7 @@ function Test-BuildProfileSchema {
         createdAt = [DateTimeOffset]::Now.ToString('o')
         profileName = 'Developer'
         keep = [pscustomobject][ordered]@{
-            edge = $false
+            edge = $true
             gaming = $false
             copilot = $false
         }
