@@ -27,3 +27,9 @@ After auth, the first session UI is the WinMint provisioning splash — never st
 ## Not covered
 
 Logon UI (password). Stamp failure leaves Explorer as shell (PreLock race again).
+
+## Deadlock lesson (2026-07-27 smoke)
+
+Unattend `FirstLogonCommands` are parked in `HKLM\...\RunOnce` and normally fire when **Explorer** starts. With `WinMintLogonShell` as Shell, Explorer never starts → RunOnce never runs → FirstLogon.ps1 never advances phase → LogonShell waits forever / FirstLogonAnim “Just a moment”.
+
+**Mitigation:** `WinMintLogonShell.ps1` self-starts FirstLogon whenever it owns Shell and FirstLogon is not already running (PreLock only on first drive). Clears `Unattend*` / `WinMintFirstLogon` RunOnce values so Explorer does not double-run after unlock. Reboot-resume must not depend on Explorer-triggered RunOnce.
