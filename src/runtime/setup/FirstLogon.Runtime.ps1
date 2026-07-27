@@ -163,7 +163,15 @@ function Invoke-WinMintFirstLogonSetupPhase {
         'release-provisioning-lock' = {
             param([hashtable]$Context, $Step)
             [void]$Step
-            if (-not $Context.SetupShellProcess) { return }
+            if (-not $Context.SetupShellProcess) {
+                # Still hand off Explorer if WinMint is the Winlogon Shell (e.g. Headless).
+                if (Get-Command Test-WinMintProvisioningLogonShellActive -ErrorAction SilentlyContinue) {
+                    if ((Test-WinMintProvisioningLogonShellActive)) {
+                        Unlock-WinMintProvisioningLogonShell -Reason 'release-no-host'
+                    }
+                }
+                return
+            }
             $releasePhase = Resolve-WinMintProvisioningReleasePhase -Context $Context
             if ($releasePhase -eq 'complete' -and (Test-WinMintSetupRetainFirstLogonArtifacts)) {
                 Start-Sleep -Seconds 10
@@ -172,6 +180,10 @@ function Invoke-WinMintFirstLogonSetupPhase {
             Update-WinMintSetupShellStatus | Out-Null
             Wait-WinMintProvisioningHost -Process $Context.SetupShellProcess -TimeoutSeconds 120
             $Context.SetupShellProcess = $null
+            # Keep custom Shell across reboot-resume; unlock only on terminal desktop return.
+            if ($releasePhase -ne 'reboot') {
+                Unlock-WinMintProvisioningLogonShell -Reason "release-$releasePhase"
+            }
         }
         'finalize-reboot-resume' = {
             param([hashtable]$Context, $Step)
@@ -213,6 +225,7 @@ function Invoke-WinMintFirstLogonSetupPhase {
                 Remove-Item -LiteralPath (Join-Path (Get-WinMintFirstLogonContext).LogDir 'FirstLogon_self-elevation.flag') -Force -ErrorAction SilentlyContinue
                 Remove-Item -LiteralPath (Join-Path (Get-WinMintFirstLogonContext).LogDir 'FirstLogon_pwsh7.flag') -Force -ErrorAction SilentlyContinue
             }
+            Invoke-WinMintFirstLogonBestEffort -ErrorMessage 'Logon shell unlock failed' -ScriptBlock { Unlock-WinMintProvisioningLogonShell -Reason 'finalize-success' }
             Invoke-WinMintFirstLogonBestEffort -ErrorMessage 'Residual cleanup failed' -ScriptBlock { Remove-WinMintResidualPayload }
             Invoke-WinMintFirstLogonBestEffort -ErrorMessage 'Explorer reload for Start pins failed' -ScriptBlock { Invoke-WinMintFirstLogonReloadExplorerShell }
         }
@@ -228,6 +241,7 @@ function Invoke-WinMintFirstLogonSetupPhase {
             else {
                 Write-WinMintFirstLogonError 'Agent run incomplete: persistent autologon and the password are left in place so the next reboot signs in automatically and RunOnce retries FirstLogon without prompting.'
             }
+            Invoke-WinMintFirstLogonBestEffort -ErrorMessage 'Logon shell unlock failed' -ScriptBlock { Unlock-WinMintProvisioningLogonShell -Reason 'finalize-recovery' }
         }
     }
 

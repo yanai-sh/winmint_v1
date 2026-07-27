@@ -179,6 +179,12 @@ function Format-WinMintVmWaitProgressLine {
     elseif (-not $Snapshot.stateExists) {
         if ($SeenAgentActivity) { $parts += 'firstlogon=active-no-state' }
         elseif ($Snapshot.breadcrumb) { $parts += 'firstlogon=starting (no agent state yet)' }
+        elseif ($Snapshot.setupPhase -in @('running', 'finishing') -or -not [string]::IsNullOrWhiteSpace([string]$Snapshot.setupShellTaskLabel)) {
+            # Splash/control can be live before state.json exists — do not say agent=not started.
+            $parts += 'firstlogon=under-splash'
+            if ($Snapshot.setupPhase) { $parts += "shell=$($Snapshot.setupPhase)" }
+            if ($Snapshot.setupShellTaskLabel) { $parts += "task=$($Snapshot.setupShellTaskLabel)" }
+        }
         else { $parts += 'agent=not started' }
     }
     else {

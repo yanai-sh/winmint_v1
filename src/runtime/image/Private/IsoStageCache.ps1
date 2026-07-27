@@ -50,7 +50,23 @@ function Test-WinMintIsoStageCacheMarkerFresh {
     if (-not (Test-Path -LiteralPath $MarkerPath)) { return $false }
     try {
         $meta = Get-Content -LiteralPath $MarkerPath -Raw -ErrorAction Stop | ConvertFrom-Json
-        $saved = [datetime]::Parse([string]$meta.SavedUtc, $null, [System.Globalization.DateTimeStyles]::RoundtripKind)
+        $raw = $meta.SavedUtc
+        if ($raw -is [datetime]) {
+            $saved = [datetime]$raw
+            if ($saved.Kind -eq [DateTimeKind]::Unspecified) {
+                $saved = [datetime]::SpecifyKind($saved, [DateTimeKind]::Utc)
+            }
+            else {
+                $saved = $saved.ToUniversalTime()
+            }
+        }
+        else {
+            $saved = [datetime]::Parse(
+                [string]$raw,
+                [System.Globalization.CultureInfo]::InvariantCulture,
+                [System.Globalization.DateTimeStyles]::RoundtripKind
+            ).ToUniversalTime()
+        }
         $age = [datetime]::UtcNow - $saved
         return ($age.TotalHours -lt $script:WinMintIsoStageCacheTtlHours)
     }

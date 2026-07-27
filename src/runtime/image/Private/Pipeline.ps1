@@ -565,7 +565,7 @@ function Invoke-WinMintIsoPipeline {
                             -IsoContents $isoContents `
                             -DriverSource $driverSource.Source `
                             -SourceLabel $driverSource.Label `
-                            -InjectWinPE `
+                            -InjectWinPE:$true `
                             -WinPEOnly
                     }
                 }

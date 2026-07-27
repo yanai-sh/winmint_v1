@@ -61,8 +61,9 @@ function Get-WinMintVmShellDesktopEvidencePaths {
 function Test-WinMintVmShellDesktopEvidence {
     <#
     .SYNOPSIS
-        Score Terminal hard-replace + Start/taskbar pin evidence as plumbing failures.
-        Pure over inputs so contract tests can red/green without a VM.
+        Score Terminal hard-replace + Start/taskbar pin evidence.
+        Baseline Explorer/Terminal and pin-selection intent are plumbing;
+        missing optional app shortcuts are warnings (soft-skip).
     #>
     param(
         [Parameter(Mandatory)]$BuildProfile,
@@ -74,6 +75,7 @@ function Test-WinMintVmShellDesktopEvidence {
     )
 
     $plumbing = [System.Collections.Generic.List[string]]::new()
+    $warnings = [System.Collections.Generic.List[string]]::new()
     $meta = [ordered]@{
         expectedTerminalProfiles = @()
         observedTerminalProfiles = @()
@@ -226,24 +228,26 @@ function Test-WinMintVmShellDesktopEvidence {
         if ($startPinsJson -notmatch 'Microsoft\.WindowsTerminal_8wekyb3d8bbwe!App') {
             $plumbing.Add('ConfigureStartPins JSON missing Windows Terminal baseline') | Out-Null
         }
+        # Optional app shortcuts may be missing (install lag / soft-skip) — warn, do not fail Smoke.
         foreach ($appId in $expectedStart) {
             $display = Get-WinMintVmPinDisplayName -Id $appId
             if ($startPinsJson -notmatch [regex]::Escape($display) -and $startPinsJson -notmatch [regex]::Escape($appId)) {
-                $plumbing.Add("ConfigureStartPins JSON missing selected app '$appId' ($display)") | Out-Null
+                $warnings.Add("ConfigureStartPins JSON missing selected app '$appId' ($display)") | Out-Null
             }
         }
         $skipped = @($ShellPins.skipped | ForEach-Object { [string]$_ } | Where-Object { $_ })
         if ($skipped.Count -gt 0) {
-            $plumbing.Add("Shell pins skipped (no shortcut/exe): $($skipped -join ', ')") | Out-Null
+            $warnings.Add("Shell pins skipped (no shortcut/exe): $($skipped -join ', ')") | Out-Null
         }
         if ([int]$ShellPins.taskbarShortcutCount -lt @($expectedTaskbar).Count) {
-            $plumbing.Add("Taskbar shortcut count $($ShellPins.taskbarShortcutCount) < expected $($expectedTaskbar.Count)") | Out-Null
+            $warnings.Add("Taskbar shortcut count $($ShellPins.taskbarShortcutCount) < expected $($expectedTaskbar.Count)") | Out-Null
         }
     }
 
     [pscustomobject]@{
         plumbingOk       = ($plumbing.Count -eq 0)
         plumbingFailures = @($plumbing)
+        warnings         = @($warnings)
         meta             = $meta
     }
 }

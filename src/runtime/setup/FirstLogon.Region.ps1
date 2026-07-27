@@ -22,6 +22,27 @@ function Set-WinMintFirstLogonUserCulture {
     [cultureinfo]::DefaultThreadCurrentCulture = $ci
 }
 
+function Wait-WinMintFirstLogonUserCulture {
+    # Language-list rebuild races Set-Culture; retry with short backoff until LocaleName matches.
+    param(
+        [Parameter(Mandatory)][string]$CultureName,
+        [int]$TimeoutMs = 1000,
+        [int]$PollMs = 50
+    )
+
+    $sw = [System.Diagnostics.Stopwatch]::StartNew()
+    $localeAfterSet = ''
+    do {
+        Set-WinMintFirstLogonUserCulture -CultureName $CultureName
+        $localeAfterSet = Get-WinMintFirstLogonUserLocaleName
+        if ($localeAfterSet -eq $CultureName) { return $localeAfterSet }
+        if ($sw.ElapsedMilliseconds -ge $TimeoutMs) { break }
+        Start-Sleep -Milliseconds $PollMs
+    } while ($true)
+
+    return $localeAfterSet
+}
+
 function Set-WinMintFirstLogonInputLanguages {
     # Set the user language list to [display language] + [secondary input languages], with the
     # display language ALWAYS first (primary) and explicitly pinned as the UI language. This is
@@ -224,23 +245,21 @@ function Restore-WinMintDmaRegionalDefaults {
     }
 
     if (-not [string]::IsNullOrWhiteSpace($restoreUserLocale)) {
+        # Settle with backoff after language-list rebuild. Do not sticky-fail here — final
+        # LocaleName verify below is the fail-closed gate (intermediate races are expected).
         try {
-            Set-WinMintFirstLogonUserCulture -CultureName $restoreUserLocale
-            $localeAfterSet = Get-WinMintFirstLogonUserLocaleName
-            if ($localeAfterSet -ne $restoreUserLocale) {
-                # Language-list normalization can race the first Set-Culture write; one retry is enough.
-                Set-WinMintFirstLogonUserCulture -CultureName $restoreUserLocale
-                $localeAfterSet = Get-WinMintFirstLogonUserLocaleName
+            $localeAfterSet = Wait-WinMintFirstLogonUserCulture -CultureName $restoreUserLocale -TimeoutMs 1000
+            if ($localeAfterSet -eq $restoreUserLocale) {
+                "$(Get-Date -Format 'o') Restored user culture to $restoreUserLocale after DMA setup (LocaleName=$localeAfterSet)." |
+                    Out-File (Join-Path (Get-WinMintFirstLogonContext).LogDir 'FirstLogon.log') -Append
             }
-            if ($localeAfterSet -ne $restoreUserLocale) {
-                throw "LocaleName '$localeAfterSet' after Set-Culture (expected '$restoreUserLocale')."
+            else {
+                "$(Get-Date -Format 'o') User culture settle pending for $restoreUserLocale (LocaleName=$localeAfterSet); will re-pin after international copy." |
+                    Out-File (Join-Path (Get-WinMintFirstLogonContext).LogDir 'FirstLogon.log') -Append
             }
-            "$(Get-Date -Format 'o') Restored user culture to $restoreUserLocale after DMA setup (LocaleName=$localeAfterSet)." |
-                Out-File (Join-Path (Get-WinMintFirstLogonContext).LogDir 'FirstLogon.log') -Append
         }
         catch {
-            $errors.Add("User culture restore failed for ${restoreUserLocale}: $_") | Out-Null
-            Write-WinMintFirstLogonError "User culture restore failed for ${restoreUserLocale}: $_"
+            Write-WinMintFirstLogonError "User culture restore attempt for ${restoreUserLocale}: $_"
         }
     }
     try {
@@ -259,16 +278,16 @@ function Restore-WinMintDmaRegionalDefaults {
         try {
             $localeAfterCopy = Get-WinMintFirstLogonUserLocaleName
             if ($localeAfterCopy -ne $restoreUserLocale) {
-                Set-WinMintFirstLogonUserCulture -CultureName $restoreUserLocale
+                $localeAfterCopy = Wait-WinMintFirstLogonUserCulture -CultureName $restoreUserLocale -TimeoutMs 1000
                 if (Get-Command Copy-UserInternationalSettingsToSystem -ErrorAction SilentlyContinue) {
                     Copy-UserInternationalSettingsToSystem -WelcomeScreen $true -NewUser $true -ErrorAction Stop
                 }
-                "$(Get-Date -Format 'o') Re-applied user culture $restoreUserLocale after international settings copy." |
+                "$(Get-Date -Format 'o') Re-applied user culture $restoreUserLocale after international settings copy (LocaleName=$localeAfterCopy)." |
                     Out-File (Join-Path (Get-WinMintFirstLogonContext).LogDir 'FirstLogon.log') -Append
             }
         }
         catch {
-            $errors.Add("User culture re-pin after international copy failed for ${restoreUserLocale}: $_") | Out-Null
+            # Final LocaleName check below remains fail-closed; avoid double-counting race noise.
             Write-WinMintFirstLogonError "User culture re-pin after international copy failed for ${restoreUserLocale}: $_"
         }
     }

@@ -9,6 +9,8 @@ function Get-WinMintSetupPayloadRequiredScriptNames {
         'DefaultUser.ps1'
         'FirstLogon.ps1'
         'FirstLogon.PreLock.ps1'
+        'WinMintLogonShell.cmd'
+        'WinMintLogonShell.ps1'
         'FirstLogon.Support.ps1'
         'WinMint.Runtime.Common.ps1'
         'WinMint.RuntimeState.ps1'

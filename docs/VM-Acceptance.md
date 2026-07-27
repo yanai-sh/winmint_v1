@@ -56,7 +56,9 @@ Smoke lists WSL distros in `development.wsl.distros` but sets `diagnostics.wslRu
 update/distro validation (no nested virt required in typical Hyper-V guests).
 The smoke wait phase also holds acceptance until **45s** of FirstLogon activity
 (breadcrumb or agent state) so setup-shell OOBE polling is not cut short.
-Full `hyper-v-install-arm64.json` still attempts real WSL when nested virt is available.
+**Smoke Wait timeout defaults to 90 minutes** (agent under splash routinely exceeds
+the old 35‑minute cap); the soft time budget warns at **60 minutes** but does not
+fail the run. Full `hyper-v-install-arm64.json` still attempts real WSL when nested virt is available.
 
 The pass requires a **Pro**, fully-unattended **Local-account** profile (the VM
 invariant): PowerShell Direct must be able to sign in, so the profile needs
@@ -115,9 +117,14 @@ pwsh -NoProfile -File .\tools\vm\Start-WinMintVmAcceptanceManaged.ps1 `
 pwsh -NoProfile -File .\tools\vm\Start-WinMintVmAcceptanceManaged.ps1 `
     -ProfilePath .\tests\profiles\hyper-v-smoke-arm64.json -Force
 
-# Headless host / no VMConnect window (opt-out)
+# Headless host / no VMConnect window (default is already -NoObserve)
 pwsh -NoProfile -File .\tools\vm\Start-WinMintVmAcceptanceManaged.ps1 `
     -ProfilePath .\tests\profiles\hyper-v-smoke-arm64.json -NoObserve
+
+# ForceBuild SL7 smoke (explicit 90‑min Wait; do not rely on stale muscle memory)
+pwsh -NoProfile -File .\tools\vm\Start-WinMintVmAcceptanceManaged.ps1 `
+    -ProfilePath .\tests\profiles\hyper-v-sl7-smoke-arm64.json `
+    -ForceBuild -SmartBuild:$false -TimeoutMinutes 90 -Force -NoLogViewer -NoObserve
 ```
 
 By default, managed acceptance opens **one Windows Terminal window** running the
@@ -125,7 +132,12 @@ worker: Spectre build chrome and harness Wait/Inspect/Evidence lines share that
 session (the invoking shell still prints the JSON handle). Full build detail also
 lands in `output/WinMint-Build.verbose.log`. Pass `-NoLogViewer` for a minimized
 headless worker (no live console). Default is `-NoObserve` (no VMConnect); pass
-`-Observe` for VMConnect Basic. Poll JSON includes `consoleMode`,
+`-Observe` for **VMConnect Basic** only. Do **not** use Hyper-V Enhanced Session
+to judge AutoLogon: an Enhanced Session password prompt is expected for the
+session channel and is not proof that Winlogon AutoAdminLogon failed. Prefer
+Basic VMConnect or headless (`-NoObserve`); the Wait phase soft-logs
+`autologon-ok` / `autologon-mismatch` from live Winlogon keys once PowerShell
+Direct is reachable. Poll JSON includes `consoleMode`,
 `observePid` / `observeMode`, and `logViewerOpened`. Attach VM manually:
 `tools\vm\Start-WinMintVmObserve.ps1`.
 
@@ -248,7 +260,7 @@ pwsh -NoProfile -File .\tools\vm\Warm-WinMintBuildCache.ps1
 | Contract suite | 1–5 min |
 | Push + wait | 1–3 min |
 | Smoke acceptance (ISO cached) | 15–30 min |
-| Smoke acceptance (full rebuild, -FastImage) | 25–35 min |
+| Smoke acceptance (full rebuild, -FastImage) | 25–50 min (Wait allows up to 90) |
 | Full acceptance | 40–60 min |
 | Restore checkpoint + push | 2–5 min |
 
@@ -292,11 +304,14 @@ Pass `-ForceBuild` to ignore the fingerprint and always rebuild from scratch.
 
 ### PostSetup checkpoint (skip Windows Setup)
 
-After the first successful install, `Build-And-TestVm.ps1` auto-saves a Hyper-V
-`PostSetup` checkpoint when Setup completes and before FirstLogon reaches a
-terminal `run.status`. Validity is recorded in
-`output\.vm-postsetup-checkpoint.json` alongside the same build fingerprint used
-for ISO reuse.
+After the first successful install, the Wait phase auto-saves a Hyper-V
+`PostSetup` checkpoint in the **pre-agent** window: `setupcomplete.log` exists and
+guest `%LOCALAPPDATA%\WinMint\state.json` does **not** yet (avoids freezing the VM
+mid-winget). Up to three save attempts on Hyper-V errors; events are
+`postsetup-checkpoint` or `postsetup-checkpoint-skipped` with reason in `run.log` /
+`run-events.jsonl`. Validity is recorded in `output\.vm-postsetup-checkpoint.json`
+alongside the same build fingerprint used for ISO reuse. After a ForceBuild smoke,
+confirm that sidecar exists before relying on `-PushOnly`.
 
 On later runs, pass `-UseCheckpoint` (or `-UseCheckpoint` through managed
 acceptance) to restore that snapshot and skip ISO build + Windows Setup when the

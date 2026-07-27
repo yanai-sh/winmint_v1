@@ -34,7 +34,25 @@ function Test-WinMintIntermediatesCacheMarkerFileFresh {
     if (-not (Test-Path -LiteralPath $MarkerJsonPath)) { return $false }
     try {
         $meta = Get-Content -LiteralPath $MarkerJsonPath -Raw -ErrorAction Stop | ConvertFrom-Json
-        $saved = [datetime]::Parse([string]$meta.SavedUtc, $null, [System.Globalization.DateTimeStyles]::RoundtripKind)
+        $raw = $meta.SavedUtc
+        # ConvertFrom-Json may materialize ISO stamps as DateTime; [string] then uses CurrentCulture
+        # and Roundtrip Parse fails (e.g. he-IL host → "07/27/2026 …").
+        if ($raw -is [datetime]) {
+            $saved = [datetime]$raw
+            if ($saved.Kind -eq [DateTimeKind]::Unspecified) {
+                $saved = [datetime]::SpecifyKind($saved, [DateTimeKind]::Utc)
+            }
+            else {
+                $saved = $saved.ToUniversalTime()
+            }
+        }
+        else {
+            $saved = [datetime]::Parse(
+                [string]$raw,
+                [System.Globalization.CultureInfo]::InvariantCulture,
+                [System.Globalization.DateTimeStyles]::RoundtripKind
+            ).ToUniversalTime()
+        }
         return (([datetime]::UtcNow - $saved).TotalHours -lt $script:WinMintIntermediatesCacheTtlHours)
     }
     catch {

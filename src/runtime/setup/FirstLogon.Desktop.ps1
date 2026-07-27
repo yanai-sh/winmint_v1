@@ -29,36 +29,21 @@ function Set-WinMintFirstLogonDesktopDefaults {
         Invoke-WinMintFirstLogonReg -Arguments @('add', $hideKey, '/v', '{645FF040-5081-101B-9F08-00AA002F954E}', '/t', 'REG_DWORD', '/d', '1', '/f') -AllowFailure
     }
 
-    # Native helper: broadcast the theme change so the ALREADY-RUNNING shell
-    # (taskbar / Start / flyouts) re-reads AppsUseLightTheme + SystemUsesLightTheme.
-    Add-Type -Namespace WinMint.Native -Name Shell -MemberDefinition @'
-[System.Runtime.InteropServices.DllImport("user32.dll", SetLastError = true, CharSet = System.Runtime.InteropServices.CharSet.Unicode)]
-public static extern bool SystemParametersInfo(int uiAction, int uiParam, string pvParam, int fWinIni);
-[System.Runtime.InteropServices.DllImport("user32.dll", SetLastError = true, CharSet = System.Runtime.InteropServices.CharSet.Unicode)]
-public static extern System.IntPtr SendMessageTimeout(System.IntPtr hWnd, uint Msg, System.IntPtr wParam, string lParam, uint flags, uint timeout, out System.IntPtr result);
-'@ -ErrorAction SilentlyContinue
-
     if (Test-Path -LiteralPath $wallpaperPath) {
         Invoke-WinMintFirstLogonReg -Arguments @('add', $desktopKey, '/v', 'Wallpaper', '/t', 'REG_SZ', '/d', $wallpaperPath, '/f') -AllowFailure
         Invoke-WinMintFirstLogonReg -Arguments @('add', $desktopKey, '/v', 'WallpaperStyle', '/t', 'REG_SZ', '/d', '10', '/f') -AllowFailure
         Invoke-WinMintFirstLogonReg -Arguments @('add', $desktopKey, '/v', 'TileWallpaper', '/t', 'REG_SZ', '/d', '0', '/f') -AllowFailure
-        try { [WinMint.Native.Shell]::SystemParametersInfo(20, 0, $wallpaperPath, 3) | Out-Null } catch { }
+        try {
+            Initialize-WinMintShellNative
+            [void][WinMint.Native.Shell]::SystemParametersInfo(20, 0, $wallpaperPath, 3)
+        }
+        catch { }
     }
 
-    # Windows applies the light default theme at first logon, so the live shell keeps a light
-    # taskbar even though the dark Personalize values are written. Broadcast the documented
-    # theme-change notification (exactly what the Settings app sends when dark mode is toggled)
-    # so the shell re-reads the values and applies dark to the taskbar/Start - rather than
-    # relying on the registry write alone being picked up.
+    # Windows applies the light default theme at first logon; registry alone is not enough for
+    # an already-running shell. Shared helper (also used by PreLock before early splash host).
     try {
-        $hwndBroadcast = [IntPtr]0xffff
-        $wmSettingChange = 0x001A
-        $smtoAbortIfHung = 0x0002
-        $res = [IntPtr]::Zero
-        foreach ($payload in 'ImmersiveColorSet', 'WindowsThemeElement', 'Policy') {
-            [void][WinMint.Native.Shell]::SendMessageTimeout($hwndBroadcast, $wmSettingChange, [IntPtr]::Zero, $payload, $smtoAbortIfHung, 1000, [ref]$res)
-        }
-        "$(Get-Date -Format 'o') Broadcast theme-change (ImmersiveColorSet) so the shell applies dark mode." | Out-File (Join-Path (Get-WinMintFirstLogonContext).LogDir 'FirstLogon.log') -Append
+        Broadcast-WinMintThemeChange
     }
     catch { Write-WinMintFirstLogonError "Theme-change broadcast failed: $_" }
 }
@@ -368,7 +353,8 @@ function Resolve-WinMintFirstLogonAppShortcut {
 
 function Set-WinMintFirstLogonTaskbarPins {
     param(
-        [Parameter(Mandatory)][string[]]$AppShortcutPaths
+        # Optional extra .lnk paths; empty is valid (Explorer + Terminal baseline only).
+        [string[]]$AppShortcutPaths = @()
     )
 
     # Live-user LayoutModification.xml with PinListPlacement=Replace. Explorer reload
@@ -471,7 +457,13 @@ function Set-WinMintFirstLogonStartPins {
     Invoke-WinMintFirstLogonReg -Arguments @('add', 'HKLM\SOFTWARE\Policies\Microsoft\Windows\Explorer', '/v', 'ConfigureStartPins', '/t', 'REG_SZ', '/d', $layoutJson, '/f') -AllowFailure
 
     $taskbarLayoutPath = $null
+    $optionalTaskbarRequested = @($selection.TaskbarAppIds).Count -gt 0
+    if ($optionalTaskbarRequested -and $taskbarShortcuts.Count -eq 0) {
+        "$(Get-Date -Format 'o') Taskbar optional AppShortcutPaths empty — writing Explorer+Terminal baseline only (skipped: $($skipped -join ', '))" |
+            Out-File -LiteralPath (Join-Path (Get-WinMintFirstLogonContext).LogDir 'FirstLogon.log') -Append
+    }
     try {
+        # Empty optional shortcuts is OK — helper writes Explorer + Terminal baseline pins.
         $taskbarLayoutPath = Set-WinMintFirstLogonTaskbarPins -AppShortcutPaths @($taskbarShortcuts)
     }
     catch {
@@ -514,12 +506,13 @@ function Set-WinMintFirstLogonStartPins {
 
 
 function Invoke-WinMintFirstLogonReloadExplorerShell {
-    # Reload the shell so the new Start pin layout takes effect. Killing explorer is
-    # enough: Winlogon's AutoRestartShell (on by default; WinMint never disables it, and
-    # explorer.exe stays the registered shell) respawns it as the shell with no window.
-    # ponytail: do NOT also Start-Process explorer.exe - by the time it runs the shell is
-    # usually already back, so the extra invocation opens a stray File Explorer ("This PC")
-    # window at first logon. Defer until after setup shell exit so Start/taskbar do not flash.
+    # Reload the shell so the new Start pin layout takes effect. Only valid once explorer.exe
+    # is the registered Winlogon Shell (after Unlock-WinMintProvisioningLogonShell).
+    if (Get-Command Test-WinMintProvisioningLogonShellActive -ErrorAction SilentlyContinue) {
+        if (Test-WinMintProvisioningLogonShellActive) {
+            Unlock-WinMintProvisioningLogonShell -Reason 'reload-explorer-preflight'
+        }
+    }
     try {
         Get-Process -Name explorer -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
         $deadline = (Get-Date).AddSeconds(15)

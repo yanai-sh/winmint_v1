@@ -1081,7 +1081,7 @@ function Assert-LiveInstallAuditIsStaged {
     if ($setupPayloadText -match [regex]::Escape("Join-Path `$ScriptRoot 'scripts'")) {
         Add-SmokeFailure 'Setup payload staging must not rely on the removed top-level scripts directory.'
     }
-    foreach ($expected in @('SetupComplete.cmd', 'SetupComplete.ps1', 'Specialize.ps1', 'DefaultUser.ps1', 'FirstLogon.PreLock.ps1', 'FirstLogon.ps1', 'FirstLogon.Support.ps1', 'WinMint.Runtime.Common.ps1', 'WinMint.RuntimeState.ps1', 'FirstLogon.Context.ps1', 'FirstLogon.State.ps1', 'FirstLogon.Host.ps1', 'FirstLogon.Desktop.ps1', 'FirstLogon.Region.ps1', 'FirstLogon.Cleanup.ps1', 'WindowsTerminal.Profiles.ps1', 'FirstLogon.Transaction.ps1', 'FirstLogon.Runtime.ps1', 'WinMintSetupShell.Status.ps1', 'WinMint.Diagnostics.ps1', 'ProvisioningGuard.ps1')) {
+    foreach ($expected in @('SetupComplete.cmd', 'SetupComplete.ps1', 'Specialize.ps1', 'DefaultUser.ps1', 'FirstLogon.PreLock.ps1', 'WinMintLogonShell.cmd', 'WinMintLogonShell.ps1', 'FirstLogon.ps1', 'FirstLogon.Support.ps1', 'WinMint.Runtime.Common.ps1', 'WinMint.RuntimeState.ps1', 'FirstLogon.Context.ps1', 'FirstLogon.State.ps1', 'FirstLogon.Host.ps1', 'FirstLogon.Desktop.ps1', 'FirstLogon.Region.ps1', 'FirstLogon.Cleanup.ps1', 'WindowsTerminal.Profiles.ps1', 'FirstLogon.Transaction.ps1', 'FirstLogon.Runtime.ps1', 'WinMintSetupShell.Status.ps1', 'WinMint.Diagnostics.ps1', 'ProvisioningGuard.ps1')) {
         if ($setupPayloadText -notmatch [regex]::Escape($expected)) {
             Add-SmokeFailure "Setup payload staging should stage '$expected'."
         }
@@ -1111,7 +1111,7 @@ function Assert-DmaRestoreRunsBeforeOptionalFirstLogonWork {
             Add-SmokeFailure "FirstLogon DMA location compliance should reference '$expected'."
         }
     }
-    foreach ($expected in @('Get-WinUserLanguageList', 'primaryLanguageTag', 'uiLanguageOverride', 'Get-WinMintFirstLogonUserLocaleName', 'LocaleName', 'New-WinUserLanguageList')) {
+    foreach ($expected in @('Get-WinUserLanguageList', 'primaryLanguageTag', 'uiLanguageOverride', 'Get-WinMintFirstLogonUserLocaleName', 'LocaleName', 'New-WinUserLanguageList', 'Wait-WinMintFirstLogonUserCulture')) {
         if ($regionText -notmatch [regex]::Escape($expected)) {
             Add-SmokeFailure "FirstLogon DMA regional restore should verify configured language via '$expected'."
         }
@@ -1187,6 +1187,9 @@ function Assert-FirstLogonDefaultsToSetupShell {
     }
     if ($autounattendText -notmatch 'FirstLogon\.PreLock\.ps1') {
         Add-SmokeFailure 'Autounattend FirstLogonCommands should run FirstLogon.PreLock.ps1 before FirstLogon.ps1.'
+    }
+    if ($defaultUserText -notmatch 'WinMintLogonShell\.cmd') {
+        Add-SmokeFailure 'DefaultUser must stamp Winlogon Shell to WinMintLogonShell.cmd so splash is first session UI.'
     }
     if ($firstLogonText -match [regex]::Escape('return ''Debug''') -and $firstLogonText -match [regex]::Escape('fullscreen provisioning shell')) {
         return
@@ -3607,6 +3610,17 @@ function Assert-SetupRegistryStampsAreIdempotent {
         if ($defaultUserText -notlike "*$expected*") {
             Add-SmokeFailure "DefaultUser.ps1 should idempotently stamp '$expected'."
         }
+    }
+    # TaskbarDa (Widgets hide) is stamped via Set-DefaultUserRegistryValue which logs ACL
+    # failures to DefaultUser_errors.log and continues — must stay non-fatal (script loop catch).
+    if ($defaultUserText -notmatch 'TaskbarDa') {
+        Add-SmokeFailure 'DefaultUser.ps1 should stamp TaskbarDa (Widgets hide).'
+    }
+    if ($defaultUserText -notmatch 'DefaultUser_errors\.log') {
+        Add-SmokeFailure 'DefaultUser.ps1 must log registry ACL failures to DefaultUser_errors.log without aborting the stamp loop.'
+    }
+    if ($defaultUserText -notmatch 'try \{ & \$s \} catch') {
+        Add-SmokeFailure 'DefaultUser.ps1 stamp loop must catch per-entry failures (TaskbarDa ACL noise must remain non-fatal).'
     }
     if ($defaultUserText -notmatch 'LaunchTo\s+-Type\s+REG_DWORD\s+-Data\s+2') {
         Add-SmokeFailure 'DefaultUser.ps1 LaunchTo must be Home (Data 2), matching offline explorer-qol.'

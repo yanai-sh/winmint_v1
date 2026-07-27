@@ -120,6 +120,28 @@ try {
     if ($edgeBad.plumbingOk -or -not (@($edgeBad.plumbingFailures) -match 'taskbarAppIds|pinEdgeToTaskbar').Count) {
         Add-ShellEvidenceFailure 'Edge on taskbar with zen-browser must fail pin plumbing.'
     }
+
+    # --- Soft: optional shortcuts skipped must warn, not fail plumbing ---
+    $pins = Get-Content -LiteralPath (Join-Path $logs 'FirstLogon_ShellPins.json') -Raw | ConvertFrom-Json
+    $pins.taskbarAppIds = @('zen-browser', 'cursor')
+    $pins.pinEdgeToTaskbar = $false
+    $pins.startPinsJson = (@{
+            pinnedList = @(
+                @{ desktopAppId = 'Microsoft.Windows.Explorer' }
+                @{ packagedAppId = 'windows.immutablecontrolpanel' }
+                @{ packagedAppId = 'Microsoft.WindowsTerminal_8wekyb3d8bbwe!App' }
+            )
+        } | ConvertTo-Json -Compress -Depth 6)
+    $pins.taskbarShortcutCount = 0
+    $pins.skipped = @('zen-browser', 'cursor')
+    $pins | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath (Join-Path $logs 'FirstLogon_ShellPins.json') -Encoding UTF8
+    $softSkip = Test-WinMintVmShellDesktopEvidence -BuildProfile $sl7 -EvidenceDir $fx
+    if (-not $softSkip.plumbingOk) {
+        Add-ShellEvidenceFailure ("Optional pin soft-skip should keep plumbing OK; failures: " + ($softSkip.plumbingFailures -join ' | '))
+    }
+    if (-not (@($softSkip.warnings) -match 'skipped|shortcut count|missing selected app').Count) {
+        Add-ShellEvidenceFailure 'Optional pin soft-skip should emit warnings for skipped apps / missing shortcuts.'
+    }
 }
 finally {
     Remove-Item -LiteralPath $fx -Recurse -Force -ErrorAction SilentlyContinue

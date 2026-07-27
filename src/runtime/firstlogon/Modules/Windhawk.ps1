@@ -85,10 +85,25 @@ function Read-WinMintWindhawkPresetEvidence {
         throw "Windhawk preset evidence points at an unexpected install root: $actualInstallRoot"
     }
 
-    if ([string]::IsNullOrWhiteSpace([string]$evidence.timestamp)) {
+    $rawTs = $evidence.timestamp
+    if ($null -eq $rawTs) {
         throw "Windhawk preset evidence marker has no timestamp: $EvidencePath"
     }
-    [void][DateTimeOffset]::Parse([string]$evidence.timestamp)
+    # ConvertFrom-Json may materialize ISO stamps as DateTime; casting to string then uses CurrentCulture.
+    if ($rawTs -is [datetime] -or $rawTs -is [datetimeoffset]) {
+        return $evidence
+    }
+    if ([string]::IsNullOrWhiteSpace([string]$rawTs)) {
+        throw "Windhawk preset evidence marker has no timestamp: $EvidencePath"
+    }
+    $parsed = [datetimeoffset]::MinValue
+    if (-not [DateTimeOffset]::TryParse(
+            [string]$rawTs,
+            [System.Globalization.CultureInfo]::InvariantCulture,
+            [System.Globalization.DateTimeStyles]::RoundtripKind,
+            [ref]$parsed)) {
+        throw "Windhawk preset evidence timestamp is not parseable: $rawTs"
+    }
 
     return $evidence
 }

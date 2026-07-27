@@ -14,8 +14,10 @@
          and vmconnect unable to reach the host. Freeing the VM's memory before the
          build avoids that contention.
       2. Build the ISO from the profile via `WinMint-CLI.ps1 build`.
-      3. Create + boot a Gen 2 (UEFI + Secure Boot + vTPM) VM from the new ISO via
-         New-WinMintTestVm.ps1 -Recreate.
+      3. Create + boot a Gen 2 (UEFI + Secure Boot + vTPM by default) VM from the
+         new ISO via New-WinMintTestVm.ps1 -Recreate. When the profile sets
+         posture.setup.hardwareBypass, vTPM is skipped so host TPM regressions
+         can still exercise Setup/FirstLogon.
 
     Requires an elevated PowerShell (WIM servicing and Hyper-V both need admin).
 
@@ -247,6 +249,14 @@ if (-not $SkipOfflineVerify) {
 }
 
 # 3. Create + boot the VM from the ISO produced by this build.
+$profileJson = Get-Content -LiteralPath $resolvedProfile -Raw | ConvertFrom-Json
+$skipVtpm = $false
+try {
+    $skipVtpm = [bool]$profileJson.posture.setup.hardwareBypass
+}
+catch {
+    $skipVtpm = $false
+}
 $vmArgs = @{
     VMName    = $VMName
     IsoPath   = $builtIso.FullName
@@ -258,5 +268,9 @@ $vmArgs = @{
 if ($SwitchName) { $vmArgs['SwitchName'] = $SwitchName }
 if ($ConnectBasic) { $vmArgs['ConnectBasic'] = $true }
 elseif ($NoConnect) { $vmArgs['NoConnect'] = $true }
+if ($skipVtpm) {
+    $vmArgs['SkipVtpm'] = $true
+    Write-Host 'Profile hardwareBypass=true: creating Gen2 VM without Enable-VMTPM.'
+}
 & (Join-Path $PSScriptRoot 'New-WinMintTestVm.ps1') @vmArgs
 

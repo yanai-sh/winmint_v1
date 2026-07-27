@@ -613,21 +613,16 @@ function Test-WinMintVmPostSetupCheckpointReady {
         [int]$TimeoutSeconds = 45
     )
 
+    # Post-Setup / pre-agent: SetupComplete done, agent state.json not written yet.
+    # Do not checkpoint while winget/agent is mid-run (online freeze flakes installs).
     $poll = Invoke-WinMintVmGuestCommand -VMName $VmName -Credential $Credential -TimeoutSeconds $TimeoutSeconds -ScriptBlock {
         $setupComplete = Test-Path -LiteralPath 'C:\Windows\Panther\setupcomplete.log'
         $statePath = Join-Path $env:LOCALAPPDATA 'WinMint\state.json'
-        $terminal = $false
-        if (Test-Path -LiteralPath $statePath) {
-            try {
-                $state = Get-Content -LiteralPath $statePath -Raw | ConvertFrom-Json
-                $terminal = [string]$state.run.status -in @('ok', 'failed')
-            }
-            catch { $terminal = $false }
-        }
+        $stateExists = Test-Path -LiteralPath $statePath -PathType Leaf
         [pscustomobject]@{
             SetupComplete = $setupComplete
-            AgentTerminal = $terminal
-            Ready = ($setupComplete -and -not $terminal)
+            AgentStateExists = $stateExists
+            Ready = ($setupComplete -and -not $stateExists)
         }
     }
     if (-not $poll.Ok) { return $null }
@@ -690,7 +685,12 @@ function Save-WinMintVmPostSetupCheckpoint {
     if ($existing) {
         Remove-VMSnapshot -VMSnapshot $existing -Confirm:$false
     }
-    Checkpoint-VM -Name $VMName -SnapshotName $CheckpointName
+    try {
+        Checkpoint-VM -Name $VMName -SnapshotName $CheckpointName -ErrorAction Stop
+    }
+    catch {
+        throw "Hyper-V Checkpoint-VM '$CheckpointName' on '$VMName' failed: $($_.Exception.Message)"
+    }
     $sidecarPath = Get-WinMintVmPostSetupCheckpointSidecarPath -RepoRoot $RepoRoot
     $null = New-Item -ItemType Directory -Force -Path (Split-Path -Parent $sidecarPath)
     $sidecar = [ordered]@{

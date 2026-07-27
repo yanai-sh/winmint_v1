@@ -1,14 +1,15 @@
 #Requires -Version 7.6
 <#
 .SYNOPSIS
-    Create and boot a Hyper-V Gen 2 VM (UEFI + Secure Boot + vTPM) from a WinMint
-    ISO to test the install end to end.
+    Create and boot a Hyper-V Gen 2 VM (UEFI + Secure Boot, vTPM by default) from a
+    WinMint ISO to test the install end to end.
 
 .DESCRIPTION
-    Builds the kind of VM Windows 11 requires (Generation 2, Secure Boot with the
-    Microsoft Windows template, and a virtual TPM) from the newest ISO in .\output
-    (or a -IsoPath you pass), attaches the Default Switch for internet if present,
-    sets the DVD as the first boot device, starts the VM, and opens vmconnect.
+    Builds the kind of VM Windows 11 normally requires (Generation 2, Secure Boot
+    with the Microsoft Windows template, and a virtual TPM) from the newest ISO in
+    .\output (or a -IsoPath you pass). Pass -SkipVtpm when the profile uses
+    hardwareBypass and the host cannot start TPM-enabled VMs; Setup then relies on
+    LabConfig instead of a vTPM.
 
     The guest architecture follows the Hyper-V host (an ARM64 host produces ARM64
     guests), so run this on the same architecture as the ISO you built.
@@ -32,7 +33,8 @@ param(
     [switch]$ExposeNestedVirtualization,
     [switch]$Recreate,
     [switch]$NoConnect,
-    [switch]$ConnectBasic
+    [switch]$ConnectBasic,
+    [switch]$SkipVtpm
 )
 
 $ErrorActionPreference = 'Stop'
@@ -104,10 +106,15 @@ if ($ExposeNestedVirtualization) {
 Set-VMMemory -VMName $VMName -DynamicMemoryEnabled $false -StartupBytes ($MemoryGB * 1GB)
 if ($SwitchName) { Connect-VMNetworkAdapter -VMName $VMName -SwitchName $SwitchName }
 Add-VMDvdDrive -VMName $VMName -Path $IsoPath
-# Windows 11 prerequisites: Secure Boot (Windows template) + virtual TPM.
+# Windows 11 prerequisites: Secure Boot (Windows template) + virtual TPM by default.
 Set-VMFirmware -VMName $VMName -SecureBootTemplate MicrosoftWindows
-Set-VMKeyProtector -VMName $VMName -NewLocalKeyProtector
-Enable-VMTPM -VMName $VMName
+if ($SkipVtpm) {
+    Write-Warning "Skipping Enable-VMTPM for '$VMName' (-SkipVtpm). Profile must set posture.setup.hardwareBypass = true or Setup will refuse the guest."
+}
+else {
+    Set-VMKeyProtector -VMName $VMName -NewLocalKeyProtector
+    Enable-VMTPM -VMName $VMName
+}
 Set-VMFirmware -VMName $VMName -FirstBootDevice (Get-VMDvdDrive -VMName $VMName)
 
 Set-WinMintVmConnectVideo -VMName $VMName

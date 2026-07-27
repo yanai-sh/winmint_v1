@@ -110,10 +110,11 @@ if (-not (Test-Path -LiteralPath $resolvedProfile)) { throw "Build profile not f
 $profileJson = Get-Content -LiteralPath $resolvedProfile -Raw | ConvertFrom-Json
 $acceptanceTier = Resolve-WinMintVmAcceptanceTier -RequestedTier $Tier -ProfileJson $profileJson
 if ($TimeoutMinutes -le 0) {
-    $TimeoutMinutes = if ($acceptanceTier -eq 'Smoke') { 35 } else { 60 }
+    # Smoke Wait must outlast SL7 agent work under splash (align with WinMintLogonShell fail-open).
+    $TimeoutMinutes = if ($acceptanceTier -eq 'Smoke') { 90 } else { 60 }
 }
 if ($TimeBudgetMinutes -le 0) {
-    $TimeBudgetMinutes = if ($acceptanceTier -eq 'Smoke') { 30 } else { 55 }
+    $TimeBudgetMinutes = if ($acceptanceTier -eq 'Smoke') { 60 } else { 55 }
 }
 $script:setupShellWatch = New-WinMintVmSetupShellWatch
 $script:observePid = 0
@@ -364,6 +365,11 @@ if ($runWait) {
     $guestPollFailureWarnEvery = 6
     $guestSnapshotScript = Join-Path $PSScriptRoot 'Get-WinMintVmGuestWaitSnapshot.ps1'
     $checkpointSaved = $false
+    $checkpointSaveFinished = $false
+    $checkpointSaveAttempts = 0
+    $checkpointSaveMaxAttempts = 3
+    $autologonLiveProbed = $false
+    $wantsLocalAutoLogon = [bool]$profileJson.identity.autoLogon
     $vmMissingPolls = 0
     while ((Get-Date) -lt $deadline) {
         $vm = Get-VM -Name $VMName -ErrorAction SilentlyContinue
@@ -397,18 +403,65 @@ if ($runWait) {
             $guestSnapshot = $null
         }
         else {
-            if (-not $checkpointSaved -and $buildPlan -and -not $PushOnly) {
-                # Best-effort: never abort FirstLogon wait if PS Direct/checkpoint races mid-Setup.
+            if (-not $checkpointSaved -and -not $checkpointSaveFinished -and $buildPlan -and -not $PushOnly) {
+                # Retry while Ready (SetupComplete, no agent state.json); give up after N failures.
                 try {
-                    $agentFp = Get-WinMintVmAgentBuildFingerprint -RepoRoot $repoRoot
-                    if (Save-WinMintVmPostSetupCheckpoint -VMName $VMName -Credential $cred `
-                            -Fingerprint ([string]$buildPlan.ImageFingerprint) -AgentFingerprint $agentFp -RepoRoot $repoRoot) {
-                        $checkpointSaved = $true
-                        Write-WinMintVmRunEvent -Kind 'milestone' -Payload @{ label = 'postsetup-checkpoint' }
+                    $postSetupReady = Test-WinMintVmPostSetupCheckpointReady -VmName $VMName -Credential $cred
+                    if ($null -eq $postSetupReady) {
+                        # Guest not pollable yet — retry next loop.
+                    }
+                    elseif (-not [bool]$postSetupReady.Ready) {
+                        # Window closed or not open yet (Setup incomplete, or agent state already present).
+                        if ([bool]$postSetupReady.SetupComplete -and [bool]$postSetupReady.AgentStateExists -and $checkpointSaveAttempts -eq 0) {
+                            $checkpointSaveFinished = $true
+                            Say 'PostSetup checkpoint skipped: agent state.json already present (pre-agent window missed).' 'Yellow'
+                            Write-WinMintVmRunEvent -Kind 'warning' -Payload @{
+                                label = 'postsetup-checkpoint-skipped'
+                                reason = 'pre-agent-window-missed'
+                            }
+                        }
+                    }
+                    else {
+                        $agentFp = Get-WinMintVmAgentBuildFingerprint -RepoRoot $repoRoot
+                        if (Save-WinMintVmPostSetupCheckpoint -VMName $VMName -Credential $cred `
+                                -Fingerprint ([string]$buildPlan.ImageFingerprint) -AgentFingerprint $agentFp -RepoRoot $repoRoot) {
+                            $checkpointSaved = $true
+                            $checkpointSaveFinished = $true
+                            Say "PostSetup checkpoint saved on '$VMName'." 'Green'
+                            Write-WinMintVmRunEvent -Kind 'milestone' -Payload @{ label = 'postsetup-checkpoint' }
+                        }
+                        else {
+                            $checkpointSaveAttempts++
+                            $reason = "save-returned-false (attempt $checkpointSaveAttempts/$checkpointSaveMaxAttempts)"
+                            if ($checkpointSaveAttempts -ge $checkpointSaveMaxAttempts) {
+                                $checkpointSaveFinished = $true
+                                Say "PostSetup checkpoint gave up after $checkpointSaveMaxAttempts attempts ($reason)." 'Yellow'
+                                Write-WinMintVmRunEvent -Kind 'warning' -Payload @{
+                                    label = 'postsetup-checkpoint-skipped'
+                                    reason = $reason
+                                }
+                            }
+                            else {
+                                Say "PostSetup checkpoint retry: $reason" 'Yellow'
+                            }
+                        }
                     }
                 }
                 catch {
-                    Say "PostSetup checkpoint skipped: $($_.Exception.Message)" 'DarkGray'
+                    $checkpointSaveAttempts++
+                    $reason = [string]$_.Exception.Message
+                    if ($checkpointSaveAttempts -ge $checkpointSaveMaxAttempts) {
+                        $checkpointSaveFinished = $true
+                        Say "PostSetup checkpoint FAILED after $checkpointSaveMaxAttempts attempts: $reason" 'Yellow'
+                        Write-WinMintVmRunEvent -Kind 'warning' -Payload @{
+                            label = 'postsetup-checkpoint-skipped'
+                            reason = $reason
+                            attempts = $checkpointSaveAttempts
+                        }
+                    }
+                    else {
+                        Say "PostSetup checkpoint error (attempt $checkpointSaveAttempts/$checkpointSaveMaxAttempts): $reason" 'Yellow'
+                    }
                 }
             }
             $pollResult = Invoke-WinMintVmGuestCommand -VMName $VMName -Credential $cred -FilePath $guestSnapshotScript -TimeoutSeconds 60
@@ -417,6 +470,44 @@ if ($runWait) {
             if ($pollResult.Ok) {
                 $guestSnapshot = ConvertTo-WinMintVmGuestWaitSnapshot -Raw $pollResult.Result
                 $result.reachable = $true
+                if (-not $autologonLiveProbed -and $wantsLocalAutoLogon) {
+                    $autologonLiveProbed = $true
+                    try {
+                        $liveAl = Invoke-WinMintVmGuestCommand -VMName $VMName -Credential $cred -TimeoutSeconds 30 -ScriptBlock {
+                            $wl = Get-ItemProperty -LiteralPath 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon' -ErrorAction Stop
+                            [pscustomobject]@{
+                                AutoAdminLogon = [string]$wl.AutoAdminLogon
+                                DefaultUserName = [string]$wl.DefaultUserName
+                            }
+                        }
+                        if ($liveAl.Ok -and $null -ne $liveAl.Result) {
+                            $al = $liveAl.Result
+                            if ($al -is [string]) { $al = $al | ConvertFrom-Json }
+                            $wantUser = [string]$profileJson.identity.accountName
+                            $gotUser = [string]$al.DefaultUserName
+                            $autoOn = [string]$al.AutoAdminLogon -eq '1'
+                            if ($autoOn -and $gotUser -and $gotUser -ieq $wantUser) {
+                                Say "AutoLogon live OK (DefaultUserName=$gotUser)." 'DarkGray'
+                                Write-WinMintVmRunEvent -Kind 'milestone' -Payload @{
+                                    label = 'autologon-ok'
+                                    DefaultUserName = $gotUser
+                                }
+                            }
+                            else {
+                                Say "AutoLogon live mismatch (AutoAdminLogon=$($al.AutoAdminLogon), DefaultUserName=$gotUser, want=$wantUser). Enhanced Session password prompts are unrelated." 'Yellow'
+                                Write-WinMintVmRunEvent -Kind 'warning' -Payload @{
+                                    label = 'autologon-mismatch'
+                                    AutoAdminLogon = [string]$al.AutoAdminLogon
+                                    DefaultUserName = $gotUser
+                                    wantUser = $wantUser
+                                }
+                            }
+                        }
+                    }
+                    catch {
+                        Say "AutoLogon live probe skipped: $($_.Exception.Message)" 'DarkGray'
+                    }
+                }
                 if ($guestSnapshot.stateExists -or $guestSnapshot.breadcrumb) {
                     $seenAgentActivity = $true
                     if (-not $firstLogonActivityAt) { $firstLogonActivityAt = Get-Date }
@@ -879,6 +970,11 @@ if ($runEvidence) {
         }
         foreach ($f in @($shellDesktop.plumbingFailures)) {
             $signalPlumbingFail.Add([string]$f) | Out-Null
+        }
+        foreach ($w in @($shellDesktop.warnings)) {
+            if (-not [string]::IsNullOrWhiteSpace([string]$w)) {
+                $result.warnings += "Shell desktop: $w"
+            }
         }
     }
 

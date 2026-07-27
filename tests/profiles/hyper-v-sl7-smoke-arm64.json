@@ -90,7 +90,7 @@
     },
     "setup": {
       "dmaInterop": true,
-      "hardwareBypass": false
+      "hardwareBypass": true
     }
   },
   "privacy": {

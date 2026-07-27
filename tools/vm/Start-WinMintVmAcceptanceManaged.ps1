@@ -13,10 +13,18 @@
     Use -PushOnly for fast FirstLogon iteration. Pass -ForceBuild when image staging
     changed and you need to bypass SmartBuild's ISO cache. Pass -NoLogViewer for a
     minimized headless worker. Pass -Observe for VMConnect Basic; default -NoObserve.
+    Smoke Wait defaults to 90 minutes (agent under splash); pass -TimeoutMinutes 90
+    explicitly on ForceBuild runs. Do not use Hyper-V Enhanced Session to judge
+    AutoLogon — a password prompt there is the session channel, not Winlogon.
 
 .EXAMPLE
     pwsh -NoProfile -File .\tools\vm\Start-WinMintVmAcceptanceManaged.ps1 `
         -ProfilePath .\tests\profiles\hyper-v-smoke-arm64.json
+
+.EXAMPLE
+    pwsh -NoProfile -File .\tools\vm\Start-WinMintVmAcceptanceManaged.ps1 `
+        -ProfilePath .\tests\profiles\hyper-v-sl7-smoke-arm64.json `
+        -ForceBuild -SmartBuild:$false -TimeoutMinutes 90 -Force -NoLogViewer -NoObserve
 #>
 [CmdletBinding()]
 param(
@@ -89,7 +97,7 @@ $null = New-Item -ItemType Directory -Path $evidenceDir -Force
 $runLog = Join-Path $evidenceDir 'run.log'
 $null = New-Item -ItemType File -Path $runLog -Force
 
-$timeBudget = if ($TimeBudgetMinutes -gt 0) { $TimeBudgetMinutes } else { 30 }
+$timeBudget = if ($TimeBudgetMinutes -gt 0) { $TimeBudgetMinutes } else { 60 }
 $runEvents = Initialize-WinMintVmRunLog -LogPath $runLog -Meta ([ordered]@{
         startedAt = $startedAt.ToString('o')
         runId = Split-Path -Leaf $evidenceDir

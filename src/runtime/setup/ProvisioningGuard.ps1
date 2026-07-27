@@ -66,7 +66,89 @@ function Disable-WinMintProvisioningGuard {
     Write-WinMintProvisioningGuardLog -Marker 'guard-release'
 }
 
+function Initialize-WinMintShellNative {
+    # Shared user32 helpers for theme broadcast + wallpaper SPI (PreLock + FirstLogon.Desktop).
+    if ('WinMint.Native.Shell' -as [type]) { return }
+    Add-Type -Namespace WinMint.Native -Name Shell -MemberDefinition @'
+[System.Runtime.InteropServices.DllImport("user32.dll", SetLastError = true, CharSet = System.Runtime.InteropServices.CharSet.Unicode)]
+public static extern bool SystemParametersInfo(int uiAction, int uiParam, string pvParam, int fWinIni);
+[System.Runtime.InteropServices.DllImport("user32.dll", SetLastError = true, CharSet = System.Runtime.InteropServices.CharSet.Unicode)]
+public static extern System.IntPtr SendMessageTimeout(System.IntPtr hWnd, uint Msg, System.IntPtr wParam, string lParam, uint flags, uint timeout, out System.IntPtr result);
+'@ -ErrorAction Stop
+}
+
+function Broadcast-WinMintThemeChange {
+    <#
+    .SYNOPSIS
+        WM_SETTINGCHANGE ImmersiveColorSet so a live shell re-reads dark/light Personalize keys.
+    #>
+    param([switch]$Quiet)
+
+    Initialize-WinMintShellNative
+    $hwndBroadcast = [IntPtr]0xffff
+    $wmSettingChange = 0x001A
+    $smtoAbortIfHung = 0x0002
+    $res = [IntPtr]::Zero
+    foreach ($payload in 'ImmersiveColorSet', 'WindowsThemeElement', 'Policy') {
+        [void][WinMint.Native.Shell]::SendMessageTimeout($hwndBroadcast, $wmSettingChange, [IntPtr]::Zero, $payload, $smtoAbortIfHung, 1000, [ref]$res)
+    }
+    if ($Quiet) { return }
+    try {
+        if (Get-Command Get-WinMintFirstLogonContext -ErrorAction SilentlyContinue) {
+            "$(Get-Date -Format 'o') Broadcast theme-change (ImmersiveColorSet) so the shell applies dark mode." |
+                Out-File (Join-Path (Get-WinMintFirstLogonContext).LogDir 'FirstLogon.log') -Append
+        }
+        else {
+            Write-WinMintProvisioningGuardLog -Marker 'theme-broadcast ImmersiveColorSet'
+        }
+    }
+    catch {
+        Write-WinMintProvisioningGuardLog -Marker 'theme-broadcast ImmersiveColorSet'
+    }
+}
+
+function Set-WinMintProvisioningDarkThemeKeys {
+    # Instant registry-only dark Personalize (no Add-Type / SPI — safe before early host).
+    & reg.exe add 'HKCU\Software\Microsoft\Windows\CurrentVersion\Themes\Personalize' /v AppsUseLightTheme /t REG_DWORD /d 0 /f 2>&1 | Out-Null
+    & reg.exe add 'HKCU\Software\Microsoft\Windows\CurrentVersion\Themes\Personalize' /v SystemUsesLightTheme /t REG_DWORD /d 0 /f 2>&1 | Out-Null
+}
+
+function Set-WinMintProvisioningDarkChrome {
+    <#
+    .SYNOPSIS
+        Dark Personalize keys + optional wallpaper + ImmersiveColorSet broadcast.
+        Call AFTER early host when used from PreLock — Add-Type/SPI/broadcast can take seconds
+        on first logon and must not gate splash cover.
+    #>
+    param(
+        # Skip wallpaper SystemParametersInfo (still writes Personalize + broadcast).
+        [switch]$SkipWallpaper
+    )
+
+    Set-WinMintProvisioningDarkThemeKeys
+    $wallpaper = 'C:\Windows\Web\Wallpaper\Windows\WinMint-Bloom.jpg'
+    if (-not $SkipWallpaper -and (Test-Path -LiteralPath $wallpaper)) {
+        & reg.exe add 'HKCU\Control Panel\Desktop' /v Wallpaper /t REG_SZ /d $wallpaper /f 2>&1 | Out-Null
+        & reg.exe add 'HKCU\Control Panel\Desktop' /v WallpaperStyle /t REG_SZ /d 10 /f 2>&1 | Out-Null
+        & reg.exe add 'HKCU\Control Panel\Desktop' /v TileWallpaper /t REG_SZ /d 0 /f 2>&1 | Out-Null
+        try {
+            Initialize-WinMintShellNative
+            [void][WinMint.Native.Shell]::SystemParametersInfo(20, 0, $wallpaper, 3)
+        }
+        catch { }
+    }
+    Broadcast-WinMintThemeChange
+}
+
 function Invoke-WinMintProvisioningDismissStartMenu {
+    # Prefer COM SendKeys — avoids a multi-second first-logon Add-Type JIT on the PreLock critical path.
+    try {
+        $shell = New-Object -ComObject WScript.Shell
+        $shell.SendKeys('{ESC}')
+        return
+    }
+    catch { }
+
     if (-not ('WinMint.StartDismiss' -as [type])) {
         $null = Add-Type -TypeDefinition @'
 using System.Runtime.InteropServices;
@@ -338,4 +420,57 @@ function Stop-WinMintProvisioningHost {
     try { $Process | Stop-Process -Force -ErrorAction SilentlyContinue } catch { }
     Stop-WinMintSetupShellStatusPump
     Stop-WinMintProvisioningHostResidual
+}
+
+function Get-WinMintLogonShellCmdPath {
+    param([string]$PayloadRoot = '')
+
+    if ([string]::IsNullOrWhiteSpace($PayloadRoot)) {
+        $PayloadRoot = if ($PSScriptRoot) { $PSScriptRoot } else { 'C:\Windows\Setup\Scripts' }
+    }
+    return (Join-Path $PayloadRoot 'WinMintLogonShell.cmd')
+}
+
+function Get-WinMintRegisteredWinlogonShell {
+    try {
+        return [string](Get-ItemProperty -LiteralPath 'HKCU:\Software\Microsoft\Windows NT\CurrentVersion\Winlogon' -Name Shell -ErrorAction Stop).Shell
+    }
+    catch {
+        return 'explorer.exe'
+    }
+}
+
+function Test-WinMintProvisioningLogonShellActive {
+    return ((Get-WinMintRegisteredWinlogonShell) -match 'WinMintLogonShell')
+}
+
+function Set-WinMintRegisteredWinlogonShell {
+    param([Parameter(Mandatory)][string]$ShellValue)
+
+    $key = 'HKCU:\Software\Microsoft\Windows NT\CurrentVersion\Winlogon'
+    try {
+        if (-not (Test-Path -LiteralPath $key)) { $null = New-Item -Path $key -Force }
+        Set-ItemProperty -LiteralPath $key -Name Shell -Value $ShellValue -Type String -Force
+    }
+    catch {
+        & reg.exe add 'HKCU\Software\Microsoft\Windows NT\CurrentVersion\Winlogon' /v Shell /t REG_SZ /d $ShellValue /f 2>&1 | Out-Null
+    }
+}
+
+function Unlock-WinMintProvisioningLogonShell {
+    <#
+    .SYNOPSIS
+        Restore explorer.exe as Winlogon Shell and start Explorer (idempotent fail-open / success handoff).
+    #>
+    param([string]$Reason = 'unlock')
+
+    $wasActive = Test-WinMintProvisioningLogonShellActive
+    Set-WinMintRegisteredWinlogonShell -ShellValue 'explorer.exe'
+    try { Disable-WinMintProvisioningGuard } catch { }
+    if (-not (Get-Process -Name explorer -ErrorAction SilentlyContinue)) {
+        Start-Process -FilePath 'explorer.exe'
+    }
+    if ($wasActive) {
+        Write-WinMintProvisioningGuardLog -Marker "logon-shell-unlock reason=$Reason"
+    }
 }

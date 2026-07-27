@@ -164,6 +164,11 @@ $scripts = @(
             @{ Path = 'HKU\DefaultUser\Software\Microsoft\Windows\CurrentVersion\Themes\Personalize'; Name = 'SystemUsesLightTheme'; Type = 'REG_DWORD'; Data = '0' }
         )
     }
+    # First interactive logon: Winlogon Shell is WinMint splash wrapper, not explorer.exe,
+    # so the provisioning cover is the first session UI (fail-open restores explorer).
+    {
+        Set-DefaultUserRegistryValue -Path 'HKU\DefaultUser\Software\Microsoft\Windows NT\CurrentVersion\Winlogon' -Name Shell -Type REG_SZ -Data 'C:\Windows\Setup\Scripts\WinMintLogonShell.cmd'
+    }
     # NOTE: the SVG default-app association is NOT set here anymore. Writing
     # FileExts\.svg\UserChoice\ProgId without the protective per-extension hash is rejected/
     # reset by Windows 11 (and can pop the "an app default was reset" toast). It is now applied
