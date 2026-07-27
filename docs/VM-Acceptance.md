@@ -58,7 +58,11 @@ The smoke wait phase also holds acceptance until **45s** of FirstLogon activity
 (breadcrumb or agent state) so setup-shell OOBE polling is not cut short.
 **Smoke Wait timeout defaults to 90 minutes** (agent under splash routinely exceeds
 the old 35‑minute cap); the soft time budget warns at **60 minutes** but does not
-fail the run. Full `hyper-v-install-arm64.json` still attempts real WSL when nested virt is available.
+fail the run. **Stall fail-fast** cuts Wait early when splash/control is live for
+**~12 minutes** (Smoke) / **~15 minutes** (Full) with no `state.json` or FirstLogon
+breadcrumb — Shell↔RunOnce deadlocks and similar hangs no longer wait out the full
+timeout. AutoLogon to `defaultuser0` also fail-fasts. Override with `-StallMinutes`.
+Full `hyper-v-install-arm64.json` still attempts real WSL when nested virt is available.
 
 The pass requires a **Pro**, fully-unattended **Local-account** profile (the VM
 invariant): PowerShell Direct must be able to sign in, so the profile needs

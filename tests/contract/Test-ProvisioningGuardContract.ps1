@@ -81,6 +81,9 @@ Assert-True ($logonShellCmd -match 'explorer\.exe') 'WinMintLogonShell.cmd shoul
 Assert-True ($logonShellPs1 -match 'Start-WinMintProvisioningHostEarly') 'WinMintLogonShell.ps1 should start the splash host immediately.'
 Assert-True ($logonShellPs1 -match 'Unlock-WinMintProvisioningLogonShell') 'WinMintLogonShell.ps1 should unlock to explorer on terminal phase or timeout.'
 Assert-True ($logonShellPs1 -match 'timeoutMinutes\s*=\s*90') 'WinMintLogonShell.ps1 should fail-open after a bounded wait.'
+Assert-True ($logonShellPs1 -match 'Start-WinMintLogonShellFirstLogonIfNeeded') 'WinMintLogonShell.ps1 must self-start FirstLogon when RunOnce cannot fire under a custom Shell.'
+Assert-True ($logonShellPs1 -match 'Clear-WinMintUnattendRunOnceEntries') 'WinMintLogonShell.ps1 must clear Unattend RunOnce keys after self-starting FirstLogon.'
+Assert-True ($logonShellPs1 -match 'FirstLogonCommands-fired') 'WinMintLogonShell.ps1 should gate on FirstLogonCommands-fired breadcrumb.'
 
 $defaultUserText = Get-Content -LiteralPath (Join-Path $root 'src\runtime\setup\DefaultUser.ps1') -Raw
 Assert-True ($defaultUserText -match 'WinMintLogonShell\.cmd') 'DefaultUser.ps1 must stamp Winlogon Shell to WinMintLogonShell.cmd.'

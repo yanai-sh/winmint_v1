@@ -41,6 +41,9 @@ param(
     [string]$Tier = 'Auto',
     [int]$TimeoutMinutes = 0,
     [int]$TimeBudgetMinutes = 0,
+    # Fail Wait early when splash/control is live but agent never starts (Shell/RunOnce deadlock, etc.).
+    # 0 = tier default (Smoke 12, Full 15). Ceiling remains TimeoutMinutes.
+    [int]$StallMinutes = 0,
     [string]$SourceIso = '',
     [string]$EvidenceRoot,
     [string]$EvidenceDir,
@@ -115,6 +118,9 @@ if ($TimeoutMinutes -le 0) {
 }
 if ($TimeBudgetMinutes -le 0) {
     $TimeBudgetMinutes = if ($acceptanceTier -eq 'Smoke') { 60 } else { 55 }
+}
+if ($StallMinutes -le 0) {
+    $StallMinutes = if ($acceptanceTier -eq 'Smoke') { 12 } else { 15 }
 }
 $script:setupShellWatch = New-WinMintVmSetupShellWatch
 $script:observePid = 0
@@ -371,6 +377,8 @@ if ($runWait) {
     $autologonLiveProbed = $false
     $wantsLocalAutoLogon = [bool]$profileJson.identity.autoLogon
     $vmMissingPolls = 0
+    $firstLogonStallStartedAt = $null
+    $firstLogonStallWarned = $false
     while ((Get-Date) -lt $deadline) {
         $vm = Get-VM -Name $VMName -ErrorAction SilentlyContinue
         if (-not $vm) {
@@ -501,10 +509,14 @@ if ($runWait) {
                                     DefaultUserName = $gotUser
                                     wantUser = $wantUser
                                 }
+                                if ($gotUser -ieq 'defaultuser0' -or [string]::IsNullOrWhiteSpace($gotUser)) {
+                                    throw "AutoLogon fail-fast: DefaultUserName='$gotUser' (want '$wantUser') — SetupComplete Autologon stamp did not take; not waiting out TimeoutMinutes."
+                                }
                             }
                         }
                     }
                     catch {
+                        if ($_.Exception.Message -match 'AutoLogon fail-fast') { throw }
                         Say "AutoLogon live probe skipped: $($_.Exception.Message)" 'DarkGray'
                     }
                 }
@@ -534,6 +546,38 @@ if ($runWait) {
                     Say 'SPLASH LIVE — VMConnect should show WinMint Setup fullscreen.' 'Cyan'
                     Write-WinMintVmRunEvent -Kind 'milestone' -Payload @{ label = 'setup-shell-live' }
                 }
+
+                # Stall fail-fast: splash/control live but FirstLogon never starts (Shell↔RunOnce deadlock, etc.).
+                $hasSplashOrControl = [bool]$script:setupShellWatch.liveUi -or
+                    (-not [string]::IsNullOrWhiteSpace([string]$guestSnapshot.setupPhase))
+                $hasAgentProgress = [bool]$guestSnapshot.stateExists -or [bool]$guestSnapshot.breadcrumb
+                if ($hasSplashOrControl -and -not $hasAgentProgress) {
+                    if (-not $firstLogonStallStartedAt) {
+                        $firstLogonStallStartedAt = Get-Date
+                        Write-WinMintVmRunEvent -Kind 'milestone' -Payload @{
+                            label = 'firstlogon-stall-clock'
+                            stallMinutes = $StallMinutes
+                        }
+                    }
+                    $stallElapsed = ((Get-Date) - $firstLogonStallStartedAt).TotalMinutes
+                    if (-not $firstLogonStallWarned -and $stallElapsed -ge [Math]::Max(1, [Math]::Floor($StallMinutes / 2))) {
+                        $firstLogonStallWarned = $true
+                        Say ("FirstLogon stall warning: splash/control live for {0:N0}m with no state.json/breadcrumb (fail at {1}m)." -f $stallElapsed, $StallMinutes) 'Yellow'
+                        Write-WinMintVmRunEvent -Kind 'warning' -Payload @{
+                            label = 'firstlogon-stall-warning'
+                            elapsedMinutes = [Math]::Round($stallElapsed, 1)
+                            stallMinutes = $StallMinutes
+                        }
+                    }
+                    if ($stallElapsed -ge $StallMinutes) {
+                        throw ("FirstLogon stall fail-fast: splash/control live for {0:N0}m without agent progress (StallMinutes={1}). Likely Shell↔RunOnce deadlock or PreLock never handed off — not waiting out TimeoutMinutes={2}." -f $stallElapsed, $StallMinutes, $TimeoutMinutes)
+                    }
+                }
+                else {
+                    $firstLogonStallStartedAt = $null
+                    $firstLogonStallWarned = $false
+                }
+
                 if ($guestSnapshot.stateExists) {
                     $runStatus = [string]$guestSnapshot.runStatus
                     if ($runStatus -in @('ok', 'failed')) {

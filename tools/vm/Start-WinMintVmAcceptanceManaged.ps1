@@ -14,8 +14,10 @@
     changed and you need to bypass SmartBuild's ISO cache. Pass -NoLogViewer for a
     minimized headless worker. Pass -Observe for VMConnect Basic; default -NoObserve.
     Smoke Wait defaults to 90 minutes (agent under splash); pass -TimeoutMinutes 90
-    explicitly on ForceBuild runs. Do not use Hyper-V Enhanced Session to judge
-    AutoLogon — a password prompt there is the session channel, not Winlogon.
+    explicitly on ForceBuild runs. Stall fail-fast defaults to 12 minutes
+    (Splash/control live with no FirstLogon progress). Do not use Hyper-V
+    Enhanced Session to judge AutoLogon — a password prompt there is the
+    session channel, not Winlogon.
 
 .EXAMPLE
     pwsh -NoProfile -File .\tools\vm\Start-WinMintVmAcceptanceManaged.ps1 `
@@ -44,6 +46,7 @@ param(
     [string]$Tier = 'Auto',
     [int]$TimeoutMinutes = 0,
     [int]$TimeBudgetMinutes = 0,
+    [int]$StallMinutes = 0,
     [string]$SourceIso = '',
     [switch]$NoObserve,
     [switch]$Observe,
@@ -137,6 +140,7 @@ $childArgs = @(
 )
 if ($TimeoutMinutes -gt 0) { $childArgs += @('-TimeoutMinutes', $TimeoutMinutes) }
 if ($TimeBudgetMinutes -gt 0) { $childArgs += @('-TimeBudgetMinutes', $TimeBudgetMinutes) }
+if ($StallMinutes -gt 0) { $childArgs += @('-StallMinutes', $StallMinutes) }
 if ($SwitchName) { $childArgs += @('-SwitchName', $SwitchName) }
 if ($SkipBuild) { $childArgs += '-SkipBuild' }
 if ($ForceBuild) { $childArgs += '-ForceBuild' }
