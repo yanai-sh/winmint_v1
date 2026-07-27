@@ -22,7 +22,7 @@ If you also have `winmint-v2-future-assets-*.zip`, keep it **outside** this repo
 |------|--------|
 | Windows | Development and all product scripts run on Windows |
 | .NET SDK | Version pinned in [`global.json`](../global.json) (preview OK) |
-| PowerShell 7.6.2+ | `pwsh` for servicing stubs / analyzer |
+| PowerShell 7.6.2+ | `pwsh` for **host** Servicing stubs / analyzer — not a guest FirstLogon runtime |
 | [Just](https://github.com/casey/just) | `winget install Casey.Just` |
 
 ```powershell
@@ -31,13 +31,15 @@ just check   # format-check + build + test + analyze-ps
 
 ## Next product work
 
-1. Set the real GitHub slug in [`agents/issue-tracker.md`](agents/issue-tracker.md).
+1. Set the real GitHub slug in [`agents/issue-tracker.md`](agents/issue-tracker.md) when the new repo exists.
 2. Grow the root [`README.md`](../README.md) as the product matures.
-3. `/setup-matt-pocock-skills` → `/to-spec` (Smoke) → `/to-tickets` → `/implement` — see [`WORKFLOW.md`](WORKFLOW.md).
-4. When a ticket needs proven v1 behaviour, clone v1 beside this repo and harvest per [`PORT-FROM-V1.md`](PORT-FROM-V1.md).
+3. Smoke planning: see [`specs/2026-07-27-smoke.md`](specs/2026-07-27-smoke.md) and [`WORKFLOW.md`](WORKFLOW.md).
+4. **Until this tree is its own GitHub repo:** local Smoke tickets may live in the v1 monorepo at `.scratch/winmint-v2-smoke/issues/` (gitignored). After copy, move that folder into the new repo’s `.scratch/` or re-run `/to-tickets`.
+5. `/implement` one ticket per session from the unblocked frontier.
+6. When a ticket needs proven v1 behaviour, clone v1 beside this repo and harvest per [`PORT-FROM-V1.md`](PORT-FROM-V1.md).
 
 ## Read order
 
 1. [`../CONTEXT.md`](../CONTEXT.md) · [`../AGENTS.md`](../AGENTS.md)
-2. [`ARCHITECTURE.md`](ARCHITECTURE.md) · [`WORKFLOW.md`](WORKFLOW.md)
+2. [`ARCHITECTURE.md`](ARCHITECTURE.md) · [`STACK.md`](STACK.md) · [`specs/2026-07-27-smoke.md`](specs/2026-07-27-smoke.md) · [`WORKFLOW.md`](WORKFLOW.md)
 3. [`decisions/`](decisions/) · [`STRUCTURE.md`](STRUCTURE.md)

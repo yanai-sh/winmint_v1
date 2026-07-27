@@ -51,7 +51,7 @@ The hard problem is less "can the backend do the work?" and more:
 These are the current top priorities for continued development.
 
 1. **Greenfield Project Reconstruction (Track I - WinMint v2)**
-   New repo: C# Orchestrator + CLI, elevated thin Servicing, hybrid Payload, Native AOT splash for Smoke; Avalonia wizard **after** Smoke. Carry forward **image quality lanes** (fast test vs Max+cleanup release) and Smoke harness caching (fingerprint / checkpoint / push-only) — not a DISM speed miracle from C# alone. See ADR-011 + seed `ARCHITECTURE.md`.
+   New repo: C# Orchestrator + CLI, elevated thin host Servicing, **C# Provisioning Supervisor** (machine-setup + Shell + in-process splash + jobs; **guest pwsh-free**) for Smoke; Avalonia wizard **after** Smoke. Same settle/executor/reboot/lock on Smoke and metal. Image quality lanes + Smoke harness caching — not a DISM speed miracle from C#. See ADR-011 + seed `ARCHITECTURE.md` / `STACK.md` / ADR-004.
 
 2. **FirstLogon and desktop experience maturity**
    Shell layers, launcher behavior, package installs, and live-user setup need stronger end-state validation and refinement. VM acceptance should prove the common live-user path before hardware installs begin.
@@ -261,7 +261,7 @@ Exit criteria:
 
 ## Track E — Avalonia Wizard (late; not early after Smoke)
 
-Avalonia is **not** in v1 and is **not** the next v2 vertical after Smoke. CLI stays the authoring surface. Track E is backlog until product depth and Payload maturity warrant a GUI. ISO splash stays **Native AOT** (`WinMint.Splash`) — never Avalonia on the ISO.
+Avalonia is **not** in v1 and is **not** the next v2 vertical after Smoke. CLI stays the authoring surface. Track E is backlog until product depth warrants a GUI. ISO guest UI stays the Provisioning Supervisor’s **in-process** Native AOT splash — never Avalonia on the ISO.
 
 ### Phase E1 — Avalonia wizard foundation
 
@@ -286,16 +286,16 @@ Work:
 Exit criteria:
 - A complete Profile can be configured, reviewed, and saved without WebView2
 
-### Phase E3 — Splash remains Native AOT
+### Phase E3 — Splash remains in-process Native AOT
 
-Goal: keep ISO splash on the Direct2D/GDI host reading status JSON under the provisioning lock.
+Goal: keep ISO splash as the Provisioning Supervisor’s in-process Direct2D/GDI presenter (Shell tenure), with optional evidence snapshots — not Avalonia, not a peer Splash.exe.
 
 Work:
-- Port splash status model from v1 (stages, a11y, reboot terminal) into `WinMint.Splash`
-- Do **not** move splash into Avalonia for Smoke or the default product path
+- Presenter cues (stages, a11y, reboot terminal) inside `WinMint.Provisioning`
+- Do **not** move splash into Avalonia or split a peer Splash.exe for Smoke
 
 Exit criteria:
-- Splash launches fullscreen under lock and renders status updates; Avalonia is not on the ISO
+- Splash launches fullscreen under Shell tenure; Avalonia is not on the ISO
 
 ### Phase E4 — Build execution UX (wizard client)
 
@@ -407,7 +407,7 @@ Canonical plan: [ADR-011](../decisions/ADR-011-winmint-v2-greenfield.md) + [`see
 
 ### Phase I1 — Seed repo + Orchestrator / CLI scaffold
 
-Goal: New GitHub repo from the seed; buildable `WinMint.slnx` (Orchestrator, Cli, Splash); docs/ADRs; no Avalonia yet.
+Goal: New GitHub repo from the seed; buildable `WinMint.slnx` (Orchestrator, Cli, Provisioning); docs/ADRs; no Avalonia yet.
 
 Work:
 - Copy seed → new repo initial commit ([`COPY-INTO-NEW-REPO.md`](COPY-INTO-NEW-REPO.md))
@@ -419,11 +419,11 @@ Exit criteria:
 
 ### Phase I2 — Servicing adapters + Payload Smoke spine
 
-Goal: Unelevated CLI drives elevated thin `servicing/*.ps1`; stage Payload; Native AOT splash on the ISO; DMA restore evidence.
+Goal: Unelevated CLI drives elevated thin `servicing/*.ps1`; stage Payload; guest pwsh-free Provisioning Supervisor on the ISO; DMA settle evidence.
 
 Work:
-- Implement Servicing kernels (mount/stage/hive/export) with quality-lane export/cleanup behaviour harvested from v1
-- Hybrid Payload: DMA restore, Autologon stamp-before-toolchain, lock, thin transaction, Common, splash status schema (stages + a11y)
+- Implement Servicing kernels (mount/stage/hive/export) with quality-lane export/cleanup behaviour
+- Guest control plane: C# Provisioning Supervisor (`--machine-setup` + Shell + in-process splash + jobs); DMA settle; Shell-tenure lock; checkpoint reboot; in-memory status + evidence snapshots — see seed ADR-004 / STACK.md
 - Smoke harness: fingerprint/SmartBuild-style ISO reuse, checkpoint, push-only FirstLogon iteration (`tools/vm`)
 
 Exit criteria:

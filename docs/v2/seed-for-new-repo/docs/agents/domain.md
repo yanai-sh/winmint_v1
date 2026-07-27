@@ -4,7 +4,7 @@
 
 - [`CONTEXT.md`](../../CONTEXT.md) at the repo root
 - [`docs/decisions/`](../decisions/) ADRs that touch the area you are changing
-- [`docs/ARCHITECTURE.md`](../ARCHITECTURE.md) and [`docs/WORKFLOW.md`](../WORKFLOW.md) for v2 shape and process
+- [`docs/ARCHITECTURE.md`](../ARCHITECTURE.md), [`docs/STACK.md`](../STACK.md), and [`docs/WORKFLOW.md`](../WORKFLOW.md) for v2 shape, stack, and process
 - [`docs/START.md`](../START.md) if you just extracted the seed zip
 
 If a file is missing, proceed silently. `/domain-modeling` (via `/grill-with-docs`) creates glossary/ADR entries lazily when terms or decisions resolve.
@@ -16,12 +16,13 @@ If a file is missing, proceed silently. `/domain-modeling` (via `/grill-with-doc
 ├── CONTEXT.md
 ├── AGENTS.md
 ├── assets/brand/          # identity only (picker icons = future-assets placeholders)
-├── payload/               # media + common|setup|agent|splash (smoke fills scripts)
-├── src/                   # WinMint.Orchestrator / Cli / Splash (+ Wizard placeholder)
-├── servicing/             # elevated thin kernels (stubs → smoke)
+├── payload/               # media + setup|jobs|provisioning (staged Supervisor)
+├── src/                   # Orchestrator / Cli / Provisioning (+ Wizard placeholder)
+├── servicing/             # elevated thin host kernels (stubs → smoke)
 ├── docs/
 │   ├── START.md
 │   ├── ARCHITECTURE.md
+│   ├── STACK.md
 │   ├── WORKFLOW.md
 │   ├── coding-contract.md
 │   ├── agents/
@@ -33,9 +34,9 @@ This repo uses `docs/decisions/` (not `docs/adr/`).
 
 ## Vocabulary
 
-Use terms as defined in `CONTEXT.md` (includes **Provisioning lock** and **Splash status**). If you need a concept that is not there, either reuse an existing term or note it for `/domain-modeling` — do not invent silent synonyms.
+Use terms as defined in `CONTEXT.md` (includes **Provisioning Supervisor**, **Machine setup**, **Provisioning lock**, **Provisioning jobs**, **Provisioning status**, **DMA settle**). If you need a concept that is not there, either reuse an existing term or note it for `/domain-modeling` — do not invent silent synonyms.
 
-When harvesting proven behaviour from WinMint v1, follow [`PORT-FROM-V1.md`](../PORT-FROM-V1.md) — do not treat v1 schemas or CLI as authority.
+When harvesting behaviour from WinMint v1, follow [`PORT-FROM-V1.md`](../PORT-FROM-V1.md) — v1 is archaeology, not authority. Do not port PreLock.ps1 as Winlogon Shell or stage guest pwsh for FirstLogon.
 
 ## ADR conflicts
 

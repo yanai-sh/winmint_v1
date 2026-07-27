@@ -8,15 +8,17 @@
 
 **Windows 11 ISO builder for clean developer workstation installs.**
 
-[![CI](https://img.shields.io/github/actions/workflow/status/yanai-sh/winmint/ci.yml?branch=main&style=flat-square&label=CI)](https://github.com/yanai-sh/winmint/actions/workflows/ci.yml)
-[![Release](https://img.shields.io/github/v/release/yanai-sh/winmint?style=flat-square)](https://github.com/yanai-sh/winmint/releases)
-[![License](https://img.shields.io/github/license/yanai-sh/winmint?style=flat-square)](LICENSE)
+[![CI](https://img.shields.io/github/actions/workflow/status/yanai-sh/winmint_v1/ci.yml?branch=main&style=flat-square&label=CI)](https://github.com/yanai-sh/winmint_v1/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/yanai-sh/winmint_v1?style=flat-square)](https://github.com/yanai-sh/winmint_v1/releases)
+[![License](https://img.shields.io/github/license/yanai-sh/winmint_v1?style=flat-square)](LICENSE)
 [![Website](https://img.shields.io/website?url=https%3A%2F%2Fwinmint.yanai.sh&style=flat-square&label=winmint.yanai.sh)](https://winmint.yanai.sh)
 [![Platform](https://img.shields.io/badge/Platform-Windows%2011%2025H2%2B-0078D6?style=flat-square&logo=windows11&logoColor=white)](#requirements)
 [![PowerShell](https://img.shields.io/badge/PowerShell-7.6.0%2B-5391FE?style=flat-square&logo=powershell&logoColor=white)](#requirements)
 [![UI](https://img.shields.io/badge/UI-WebView2-0078D6?style=flat-square&logo=webview2&logoColor=white)](assets/runtime/setup/setup-shell)
 
 </div>
+
+> **Archive / reference:** this repository is **WinMint v1** (yanai-sh/winmint_v1). Active greenfield development is **[yanai-sh/winmint](https://github.com/yanai-sh/winmint)** (v2). Keep this tree for behaviour archaeology and harvest notes under `docs/v2/`.
 
 WinMint takes **your** official Windows 11 ISO, applies a coherent workstation baseline, stages unattended setup and first-logon automation, and outputs a bootable ISO. There is no pinned golden image inside the repo — the source ISO you pick is what gets serviced.
 

@@ -1,11 +1,14 @@
 # Migration guide (moved)
 
-**Superseded.** Early drafts assumed an in-place port and a unified Avalonia wizard+splash binary. That is not the locked plan.
+**Superseded.** Early drafts assumed an in-place port, unified Avalonia wizard+splash, or guest pwsh adapters. That is not the locked plan.
 
 Use instead:
 
-- [`seed-for-new-repo/docs/ARCHITECTURE.md`](seed-for-new-repo/docs/ARCHITECTURE.md) (image-quality lanes, Autologon, splash status model)
-- [`seed-for-new-repo/docs/PORT-FROM-V1.md`](seed-for-new-repo/docs/PORT-FROM-V1.md) (harvest map — sync when v1 proves new Smoke-critical behaviour)
+- [`seed-for-new-repo/docs/ARCHITECTURE.md`](seed-for-new-repo/docs/ARCHITECTURE.md)
+- [`seed-for-new-repo/docs/STACK.md`](seed-for-new-repo/docs/STACK.md)
+- [`seed-for-new-repo/CONTEXT.md`](seed-for-new-repo/CONTEXT.md)
+- [`seed-for-new-repo/docs/decisions/ADR-004-stack-and-guest-control-plane.md`](seed-for-new-repo/docs/decisions/ADR-004-stack-and-guest-control-plane.md)
+- [`seed-for-new-repo/docs/PORT-FROM-V1.md`](seed-for-new-repo/docs/PORT-FROM-V1.md) (behaviour archaeology only)
 - [`seed-for-new-repo/docs/WORKFLOW.md`](seed-for-new-repo/docs/WORKFLOW.md)
-- [ADR-011](../decisions/ADR-011-winmint-v2-greenfield.md) (v1 repo record)
-- [`roadmap.md`](roadmap.md) Track I (orchestrator-first; Avalonia after Smoke)
+- [ADR-011](../decisions/ADR-011-winmint-v2-greenfield.md)
+- [`roadmap.md`](roadmap.md) Track I

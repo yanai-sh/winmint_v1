@@ -40,5 +40,5 @@ check: format-check build
 publish-cli:
     dotnet publish src/WinMint.Cli/WinMint.Cli.csproj -c Release -r win-arm64 --self-contained
 
-publish-splash:
-    dotnet publish src/WinMint.Splash/WinMint.Splash.csproj -c Release -r win-arm64 --self-contained
+publish-provisioning:
+    dotnet publish src/WinMint.Provisioning/WinMint.Provisioning.csproj -c Release -r win-arm64 --self-contained

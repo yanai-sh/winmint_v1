@@ -51,10 +51,9 @@ payload/
     fonts/
     terminal/
     wallpaper/      # bloom.png only
-  common/
-  setup/
-  agent/
-  splash/
+  setup/            # SetupComplete.cmd → Provisioning --machine-setup
+  jobs/             # job manifests (not pwsh adapters)
+  provisioning/     # published Supervisor AOT host (CI)
   payload-manifest.json
 ```
 

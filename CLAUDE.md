@@ -4,7 +4,7 @@ See [AGENTS.md](AGENTS.md) for the full agent context and coding contract.
 
 ### Issue tracker
 
-Issues live in GitHub Issues (`yanai-sh/winmint`) via the `gh` CLI. See `docs/agents/issue-tracker.md`.
+Issues live in GitHub Issues (`yanai-sh/winmint_v1`) via the `gh` CLI. See `docs/agents/issue-tracker.md`.
 
 ### Triage labels
 

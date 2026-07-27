@@ -15,14 +15,16 @@
 </PropertyGroup>
 ```
 
-Pin the .NET SDK in `global.json` (e.g. `11.0.100-preview.6.x`). Avalonia wizard (later): **12.1.x**.
+Pin the .NET SDK in `global.json` (e.g. `11.0.100-preview.6.x`). Avalonia wizard (later): **12.1.x**. Full stack: [STACK.md](STACK.md). Guest control plane: [ADR-004](decisions/ADR-004-stack-and-guest-control-plane.md).
 
 ## Native AOT
 
+- Publishable hosts: **Cli**, **Provisioning Supervisor** (`PublishAot` on those exes). Splash is in-process in Provisioning — not a second publishable ISO host.
 - No reflection-driven pipeline code (`Type.GetType`, `Activator.CreateInstance`, etc.).
-- JSON via `System.Text.Json` **source generation** (`JsonSerializerContext`).
-- Win32 via `LibraryImport`, not `DllImport`.
-- `PublishAot` on the main exe only; `IsAotCompatible` on libraries.
+- JSON via `System.Text.Json` **source generation** (`JsonSerializerContext`) for contracts and evidence snapshots.
+- Win32 via `LibraryImport`, not `DllImport` (CsWin32 only if justified in STACK.md).
+- `PublishAot` on publishable exes only; `IsAotCompatible` on libraries in the AOT graph.
+- NuGet: Microsoft-thin allowlist only — no MediatR / DI host / Newtonsoft by default.
 
 ## C# patterns (use when they earn their keep)
 
@@ -50,4 +52,6 @@ var outcome = operation switch
 
 - Unelevated Orchestrator/CLI; elevate only Servicing `pwsh`.
 - No in-process WIM/hive work in the wizard or unelevated CLI.
+- Guest: Provisioning Supervisor is Winlogon Shell (and `--machine-setup`); **no guest pwsh**.
+- Product languages: C# everywhere on guest; pwsh 7.6+ for **host Servicing only**.
 - Leave one small runnable check for non-trivial logic (see project TDD / ponytail norms).

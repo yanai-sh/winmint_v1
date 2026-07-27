@@ -1,6 +1,8 @@
 # WinMint v2 architecture (locked)
 
-Greenfield project: **new GitHub repository**, no backwards compatibility with WinMint v1 contracts or CLI. See [ADR-002](decisions/ADR-002-v2-architecture.md). Naming: [NAMING.md](NAMING.md). Tree: [STRUCTURE.md](STRUCTURE.md).
+Greenfield project: **new GitHub repository**, no backwards compatibility with WinMint v1 contracts or CLI. See [ADR-002](decisions/ADR-002-v2-architecture.md), [ADR-004](decisions/ADR-004-stack-and-guest-control-plane.md). Full stack inventory: [STACK.md](STACK.md). Naming: [NAMING.md](NAMING.md). Tree: [STRUCTURE.md](STRUCTURE.md). Glossary: [CONTEXT.md](../CONTEXT.md).
+
+**Design stance:** prefer modern elegant solutions over v1/v2 precedent when they conflict. Smoke and bare metal share the same Supervisor / settle / job executor / reboot / lock rules; they may differ in Profile job set and acceptance evidence bars only.
 
 ## Architectural style
 
@@ -11,25 +13,17 @@ Greenfield project: **new GitHub repository**, no backwards compatibility with W
 | **Pipeline / orchestrator** | Unelevated C# sequences validate → plan → emit job/unattend → invoke Servicing → collect evidence |
 | **Port** | “Run elevated imaging job” / “stage payload tree” — small interfaces the Orchestrator owns |
 | **Adapter** | Thin `pwsh -File` kernels under `servicing/` (DISM, hive, oscdimg); filesystem staging |
-| **Deep modules** | Fat behaviour behind small surfaces (e.g. `IServicingRunner`, Profile validator) — see codebase-design vocabulary |
+| **Deep modules** | Fat behaviour behind small surfaces (e.g. `IServicingRunner`, Profile validator, Supervisor settle/jobs) |
 
-**Do not use as the backbone:**
+**Do not use as the backbone:** Clean Architecture onion, full tactical DDD, or microservices — batch imaging pipeline, one process graph + elevated Servicing helper.
 
-| Style | Why it’s a poor fit |
-|-------|---------------------|
-| **Classic Clean Architecture** ( Domains ← Application ← Infrastructure onion, UseCase-per-feature folders) | WinMint is a **batch imaging pipeline**, not an enterprise app with many interactive use cases. The onion adds folders without a second consumer. |
-| **Full tactical DDD** (aggregates, domain events, repositories, sagas) | No long-lived domain model or transactional consistency boundary across users. Profile JSON in → ISO out. |
-| **Microservices** | One desktop toolchain; one process graph + elevated helper. |
-
-**Do use lightly from DDD (strategic only):**
-
-Three **bounded contexts** (vocabulary + ownership — not event buses):
+**Bounded contexts (strategic only):**
 
 | Context | Owns | Folder gravity |
 |---------|------|----------------|
 | **Authoring** | Profile intent, CLI, later Wizard | `src/WinMint.Cli`, `src/WinMint.Wizard`, Orchestrator Config |
 | **Imaging** | Plan, unattend, Servicing jobs | `src/WinMint.Orchestrator`, `servicing/` |
-| **Provisioning** | FirstLogon, splash, agent, staged media | `payload/`, `src/WinMint.Splash` |
+| **Provisioning** | Supervisor (Machine setup + Shell + jobs), staged media | `src/WinMint.Provisioning`, `payload/` |
 
 Cross-context rule: Imaging must not call live Provisioning APIs; it only **stages** files. Provisioning never mounts WIMs.
 
@@ -37,91 +31,108 @@ Cross-context rule: Imaging must not call live Provisioning APIs; it only **stag
 
 ```
 Unelevated C# CLI / Orchestrator  →  elevated pwsh Servicing adapters
-                                 →  stages payload/ into the image
+                                 →  stages Provisioning binary; stamps Shell offline
 Avalonia wizard (later)          →  same Orchestrator ports
-Native AOT splash (ISO)          →  status JSON + provisioning lock (not Avalonia)
+
+Guest:
+  SetupComplete.cmd → Provisioning --machine-setup
+  Winlogon Shell = same AOT binary
+    → in-process splash → DMA settle → provisioning jobs
+    → complete/failed/timeout → explorer.exe
+    → reboot → checkpoint, keep Shell, resume
 ```
 
 | Layer | Owns | Must not own |
 |-------|------|----------------|
 | **Orchestrator** (C#) | Profile validation, plan, CLI, unattend/job JSON | In-process DISM / offline hive |
-| **Servicing** (elevated `pwsh -File`) | Thin DISM/WIM/hive/export adapters | Product CLI, fat monolith entry |
-| **Payload** | Setup / FirstLogon / agent stub / splash host + media | Build orchestration |
+| **Servicing** (elevated `pwsh -File`) | Thin DISM/WIM/hive/export adapters | Product CLI, fat monolith, guest FirstLogon |
+| **Provisioning Supervisor** (C# AOT) | Machine setup stamps, Shell tenure, splash, DMA settle, jobs, evidence snapshots, unlock | Offline imaging |
 | **Wizard** (Avalonia, later) | Profile authoring UI | Servicing, ISO splash |
 
 ## First vertical: Smoke
 
 - Profile → ISO → Hyper-V unattend install → FirstLogon complete
-- Evidence: splash plumbing OK + **DMA** restore
+- Evidence: splash plumbing + DMA **hard**-field settle (+ optional status snapshots)
 - Plumbing only: no debloat/keep matrix, no BitLocker policy
 - Password-**required** local account; Hyper-V smoke SKU = **Pro**
 - **CLI-first** — Avalonia after Smoke is green
 - User always supplies official Microsoft **Source ISO** ([ADR-001](decisions/ADR-001-source-iso-legal.md))
-- Smoke / test ISO builds use the **fast image-quality lane** (below); do not pay for release compression during iteration
+- Fast image-quality lane for Smoke builds
+- **Guest pwsh-free**; Supervisor is Shell ([ADR-004](decisions/ADR-004-stack-and-guest-control-plane.md))
 
-### Smoke Autologon invariant
+### Machine setup + Autologon / Shell invariants
 
-Proven hard failure in v1: if SetupComplete leaves Winlogon as `DefaultUserName=defaultuser0` with `AutoAdminLogon`, FirstLogonAnim hangs on “Just a moment” and Payload never starts.
+Before first interactive logon:
 
-For Local + autoLogon Smoke:
+1. Servicing stamps Winlogon Shell (DefaultUser / as designed) to the Supervisor path offline.
+2. Machine setup (`Provisioning --machine-setup` from SetupComplete.cmd): stamp profile autologon **before** any long work; fail-closed verify/restamp Shell; secret wipe as required. **No** provisioning jobs here.
+3. Never leave `DefaultUserName=defaultuser0` with `AutoAdminLogon` for the first interactive logon.
 
-1. Stamp Winlogon to the **profile account** before any unbounded/long SetupComplete network install (toolchain / winget).
-2. Keep a **final restamp** before secret cleanup.
-3. Fail closed (verify + throw) when Local+autoLogon is selected; still wipe secrets after action errors.
+### Shell tenure (provisioning lock)
 
-Harvest: v1 `SetupComplete.ps1` (`autologon-stamp` before `toolchain-install`). See [PORT-FROM-V1.md](PORT-FROM-V1.md).
+While Supervisor is Winlogon Shell and showing splash, the session is under provisioning lock. Unlock = set Shell to `explorer.exe` and exit. Hard input/task-switch policy is later hardening, not Smoke-critical.
 
-### Splash status model
+**Fail-open:** unlock on `complete` / `failed` (after a short failed dwell so status is readable) and on hard wall-clock timeout (treated as `failed`). Phase `reboot` **keeps** Supervisor as Shell for resume.
 
-Splash stays **Native AOT** (not Avalonia). Port the v1 presenter *behaviour*, not the WebView2 wizard or InstallPlan module catalog:
+### DMA settle
 
-| Concern | Carry forward |
-|---------|----------------|
-| Host | Direct2D with GDI fallback; PreLock adopt-if-running |
+Same policy on Smoke and bare metal:
+
+1. Restore visible region after Ireland Setup.
+2. Bounded poll, then **one final snapshot**.
+3. Locale / GeoID / time zone must match Profile → else phase `failed`, no jobs.
+4. Location-services posture is soft (warn, continue).
+
+### Splash and theme
+
+- Splash is **in-process**; paints its own dark/branded canvas (no system-theme dependency).
+- Before unlock to Explorer, apply Profile appearance once.
+- No mid-provision theme hard-gate.
+
+### Provisioning status
+
+In-memory model drives the presenter. JSON snapshots are **evidence/observability** for harness pulls — not the control-plane mailbox.
+
+### Provisioning jobs + reboot
+
+- Supervisor runs `winget` / Scoop / `wsl` (etc.) as **child processes**.
+- Smoke vs metal differ in **which jobs** the Profile schedules, not in the executor.
+- On `needsReboot`: persist checkpoint, phase `reboot`, keep Shell, reboot; after auth resume under splash.
+
+### Splash presentation model
+
+| Concern | Behaviour |
+|---------|-----------|
+| Host | Direct2D with GDI fallback, in-process |
 | Control phases | `running` → `finishing` → `complete` / `failed` / `reboot` |
-| Status JSON | OOBE-style stages (`stageId` / `taskLabel`: ready → apps → wsl → finish), `detailLabel` + `itemIndex`/`itemTotal`, stage-weighted progress, `progressMode` indeterminate for ready/finish and long items |
-| Paint | Main / detail / `i of n` / thin bar — no `%`, no package-manager names, no step checklist |
-| Accessibility | Reduced motion (`SPI_GETCLIENTAREAANIMATION`), high-contrast flat canvas, Narrator via window title + `EVENT_OBJECT_NAMECHANGE` |
-| Reboot | `needsReboot` / `reboot` terminal phase **under** the provisioning lock — do not release the lock then reboot blindly |
+| Paint cues | OOBE-style stages, detail, `i of n`, thin bar — no `%`, no package-manager names |
+| Accessibility | Reduced motion, high-contrast flat canvas, Narrator-friendly title updates |
 
-Clean-sheet JSON schema in v2; use v1 `WinMintSetupShell.Status.ps1` + `apps/setup-shell/` as behaviour reference only.
+Clean-sheet status schema; v1 splash behaviour is reference only when useful.
 
 ## Image quality (run override, not Profile)
 
-ISO wall-clock is dominated by DISM + WIM export. Orchestrator language does not change that. Keep **two lanes** (same idea as v1 `-Compression` / `-FastImage`):
+ISO wall-clock is dominated by DISM + WIM export. Keep two lanes:
 
 | Lane | Export / cleanup | Use |
 |------|------------------|-----|
-| **Test / Smoke** | Soft or no recompress; **skip** WinSxS `StartComponentCleanup` | Iteration, Hyper-V Smoke — size irrelevant |
-| **Release** | Hard recompress (`Max`) + `StartComponentCleanup` | Bare-metal / published ISOs — small when practical |
+| **Test / Smoke** | Soft or no recompress; **skip** WinSxS `StartComponentCleanup` | Iteration, Hyper-V Smoke |
+| **Release** | Hard recompress (`Max`) + `StartComponentCleanup` | Published / bare-metal ISOs |
 
-- Image quality is a **build run override**, not a Profile field.
-- Manifest (or equivalent build report) must record export compression and whether component cleanup ran — never ship a fast-lane ISO as if it were release quality.
-- VM harness concerns (ISO fingerprint cache / SmartBuild, PostSetup checkpoint, push-only FirstLogon) are **tools/vm** work for Smoke speed; they are not product CLI surface.
+Manifest/report must record what ran. VM SmartBuild / checkpoint / push-only remain harness concerns.
 
-## Payload strategy: hybrid
+## Payload strategy
 
-**Port-and-reshape** from v1: DMA restore, provisioning lock, thin transaction, Common, splash host model (stages + a11y + Autologon stamp).
-
-**Clean-sheet:** staged JSON contracts, thin agent stub, small status schema.
-
-**Do not** wrap v1 `WinMint.ps1` as the elevated subprocess.
+Stage media, SetupComplete.cmd, Supervisor binary, and job manifests. Behaviour ideas may be harvested from v1; **implementation** is C# Supervisor + thin host Servicing. Do not wrap v1 `WinMint.ps1`. Do not stage guest pwsh as FirstLogon runtime.
 
 ## Post-Smoke product stances (harvest, not Smoke scope)
 
-When product depth lands after Smoke, carry these v1 decisions forward unless an ADR revises them:
+When product depth lands after Smoke, carry forward only where still desired: Edge stays installed (noise debloat only), Home-first quiet UX, Coreutils baseline, managed `wsl.conf`, no Raycast/Everything, `PreventDeviceMetadataFromNetwork` with WU drivers preserved. See [PORT-FROM-V1.md](PORT-FROM-V1.md).
 
-- **Edge stays installed** — noise/ADMX debloat only; no uninstall automation or keep/remove Edge UI.
-- **Home-first quiet UX** — collapse tips/rehydration paths; DMA restore-first remains.
-- **Baseline host CLI** includes Microsoft Coreutils; WSL uses managed `wsl.conf` + default user per distro when distros are selected.
-- **No Raycast / Everything** product paths.
-- **Network device-metadata prompts blocked** offline (`PreventDeviceMetadataFromNetwork`); Windows Update driver delivery preserved.
+## Stack (summary)
 
-Full path map: [PORT-FROM-V1.md](PORT-FROM-V1.md).
+See [STACK.md](STACK.md).
 
-## Stack
-
-- `net11.0` + SDK pin (`global.json`)
-- Avalonia **12.1.x** for wizard later; splash stays native AOT (non-Avalonia)
-- Source-gen JSON; `LibraryImport` for Win32; `PublishAot` on exes only
-- Elevated Servicing / Payload scripts: **pwsh 7.6+** (v1 floor)
+- Guest: **C# only** (one AOT Provisioning exe)
+- Host Servicing: **pwsh 7.6+** thin kernels
+- `net11.0` + Native AOT; NuGet Microsoft-thin; Avalonia 12.1.x later for host wizard only

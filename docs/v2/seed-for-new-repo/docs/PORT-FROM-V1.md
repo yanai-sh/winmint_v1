@@ -1,97 +1,84 @@
 ﻿# Port-from-v1 harvest map
 
-WinMint v2 is a **new repo** with clean-sheet contracts. Do **not** submodule v1. Day-one scaffold, docs, brand, and media in this seed stand alone — **v1 on disk is optional** until a hybrid Payload / Servicing ticket needs proven behaviour.
+WinMint v2 is a **new repo** with clean-sheet contracts. Do **not** submodule v1. Day-one scaffold stands alone — **v1 on disk is optional** until a Servicing or Supervisor-behaviour ticket needs a proven reference.
 
-**Last harvest sync:** 2026-07-20 (v1 commits after seed `2d7966d` through `fdaf2c1`). Re-read v1 `AGENTS.md` when a ticket needs current wording; this map is the intentional carry-forward list, not a mirror of the whole monolith.
+**Last harvest sync:** 2026-07-27 — grill-locked guest control plane ([ADR-004](decisions/ADR-004-stack-and-guest-control-plane.md)). This map is **behaviour archaeology**, not authority. Prefer elegant modern solutions when they conflict with v1.
 
 ## Locating v1 (when a ticket needs it)
 
 ```powershell
 # sibling clone (recommended)
-git clone https://github.com/yanai-sh/winmint.git ..\winmint-v1
+git clone https://github.com/yanai-sh/winmint_v1.git ..\winmint-v1
 # paths in the tables below are relative to that clone's root
 ```
 
 Or point at any existing local v1 checkout. Never copy the v1 tree into this repo.
 
-**Deferred shell presets** (and placeholder picker icons) may live in the companion `winmint-v2-future-assets-*.zip` (or v1’s `docs/v2/future-assets/`). Prefer the shelf for Windhawk/YASB/Komorebi presets. Avalonia / picker icons are **not** early v2 work — treat `ui/` as placeholders only.
+**Deferred shell presets** (and placeholder picker icons) may live in the companion `winmint-v2-future-assets-*.zip` (or v1’s `docs/v2/future-assets/`). Avalonia / picker icons are **not** early v2 work.
 
 Paths below are relative to the **v1** repo root unless noted.
 
-## Imaging adapters → `servicing/`
+## Imaging adapters → `servicing/` (host pwsh)
 
 | Steal idea from (v1) | Land in v2 |
 |----------------------|------------|
-| `src/runtime/image/Private/Image/Staging.ps1` (DISM mount/save/dismount kernels) | `servicing/Mount-Wim.ps1`, `Dismount-Wim.ps1` |
-| `src/runtime/image/Private/Pipeline.ps1` (ISO mount, oscdimg export pieces) | `servicing/Mount-IsoStage.ps1`, `Export-Iso.ps1` |
-| `src/runtime/image/Private/Image/Tweaks.ps1` (`Invoke-RegistryTweak` / `reg load` loop only) | `servicing/Apply-OfflineOps.ps1` |
-| `src/runtime/image/Private/Image/SetupPayloadStaging.ps1` (copy logic — **not** hardcoded name lists) | `servicing/Stage-Payload.ps1` + `payload/payload-manifest.json` |
-| `src/runtime/image/Private/Image/Unattend.ps1` / DMA locale merge | **Rewrite in C#** (`WinMint.Orchestrator` Unattend) — use v1 only as behaviour reference |
-| Entire `WinMint.ps1` load / `Invoke-WinMintIsoPipeline` | **Do not wrap** |
-| `Cli.ps1` / `Packages.ps1` image-quality path (`-Compression` Max\|Fast\|None, `-FastImage`, `StartComponentCleanup` gate, manifest `exportCompression` / `componentCleanup`) | Orchestrator **run overrides** + Servicing export/cleanup kernels; same two-lane semantics ([ARCHITECTURE.md](ARCHITECTURE.md#image-quality-run-override-not-profile)) |
-| WinUtil-inspired resume: Max-compression cache / skip re-export when fingerprint matches; PE driver inject path; tweak undo / rollback evidence | Servicing export kernels + Orchestrator report fields (Smoke may use fast lane only) |
-| `PreventDeviceMetadataFromNetwork` + vendor co-installer blocks (WU driver delivery preserved) | Offline hive ops — default-on for product builds after Smoke plumbing |
-| Dual-channel Spectre One Half Dark console + verbose file log | Orchestrator/CLI report UX (optional for Smoke; do not block ISO path) |
-| `tools/vm/` SmartBuild fingerprint, checkpoint, `-PushOnly`, ForceBuild/SmartBuild honor | `tools/vm/` Smoke harness (not product CLI) |
+| DISM mount/save/dismount kernels | `servicing/Mount-Wim.ps1`, `Dismount-Wim.ps1` |
+| ISO mount, oscdimg export pieces | `servicing/Mount-IsoStage.ps1`, `Export-Iso.ps1` |
+| Offline registry tweak apply / `reg load` | `servicing/Apply-OfflineOps.ps1` |
+| Payload copy via manifest (not hardcoded name lists) | `servicing/Stage-Payload.ps1` + `payload/payload-manifest.json` |
+| Unattend / DMA locale merge | **Rewrite in C#** (`WinMint.Orchestrator` Unattend) |
+| Entire `WinMint.ps1` load / ISO pipeline entry | **Do not wrap** |
+| Image-quality lanes (`Max`/`Fast`/`None`, component cleanup) | Orchestrator run overrides + Servicing export kernels |
+| SmartBuild fingerprint, VM checkpoint, push-only | `tools/vm/` harness only |
+| `PreventDeviceMetadataFromNetwork` (+ WU drivers preserved) | Offline hive ops after Smoke plumbing |
 
-## Provisioning spine → `payload/`
+## Provisioning → `WinMint.Provisioning` + `payload/`
+
+v1 FirstLogon/lock/DMA/agent scripts are **behaviour references only**. Implementation is the **C# Provisioning Supervisor** (guest pwsh-free).
 
 | Steal idea from (v1) | Land in v2 |
 |----------------------|------------|
-| `src/runtime/setup/FirstLogon.Region.ps1` (`Restore-WinMintDmaRegionalDefaults`) | `payload/setup/` region restore module |
-| `src/runtime/setup/ProvisioningGuard.ps1`, `FirstLogon.PreLock.ps1` | `payload/setup/` lock / PreLock |
-| `src/runtime/setup/FirstLogon.Transaction.ps1` + `.Runtime.ps1` (step catalog — slim) | `payload/setup/` thin transaction |
-| `src/runtime/common/WinMint.Runtime.Common.ps1` | `payload/common/` |
-| `src/runtime/setup/FirstLogon.State.ps1` (autologon / RunOnce / MaxAttempts) | `payload/setup/` |
-| `src/runtime/setup/SetupComplete.ps1` Autologon stamp **before** long network/toolchain work; final restamp before secret wipe; never leave `DefaultUserName=defaultuser0` with `AutoAdminLogon` | `payload/setup/SetupComplete.ps1` — **Smoke-critical** ([ARCHITECTURE.md](ARCHITECTURE.md#smoke-autologon-invariant)) |
-| `src/runtime/setup/SetupComplete.ps1` (Panther wipe + RunOnce — drop debloat catalog for Smoke) | `payload/setup/SetupComplete.ps1` |
-| `src/runtime/setup/WinMintSetupShell.Status.ps1` + OOBE stage projection (`stageId` / `taskLabel` / item progress / a11y) | **Rewrite thin** status projector + clean-sheet schema; keep stage semantics ([ARCHITECTURE.md](ARCHITECTURE.md#splash-status-model)) |
-| `apps/setup-shell/` (Native AOT splash: Direct2D/GDI, reduced-motion, high-contrast, Narrator namechange) | `src/WinMint.Splash/` (port presenter model; new JSON schema) |
-| `needsReboot` scheduling **under** provisioning lock (do not release lock then reboot blindly) | Payload transaction control phases (`reboot` terminal) |
-| Pins / desktop finalize under lock; winget catch-up honesty signals | Post-Smoke agent/desktop verticals; Smoke may stub |
-| `src/runtime/firstlogon/` agent modules + `agent-module-catalog.json` | **Smoke:** thin stub in `payload/agent/` only |
+| DMA restore criteria (locale/GeoID/TZ/location soft) | Supervisor **DMA settle** — final snapshot; no sticky intermediate fails |
+| Splash before Explorer | Supervisor as Winlogon Shell + in-process splash — **do not** port PreLock.ps1 as Shell |
+| Transaction / step order | Supervisor state machine; clean-sheet phases |
+| Shell override + fail-open | Supervisor unlock on complete/failed/timeout; hold Shell on reboot |
+| Autologon stamp before long work; never `defaultuser0` + AutoAdminLogon | Supervisor `--machine-setup` from SetupComplete.cmd (+ offline Shell stamp in Servicing) |
+| Status stages / a11y paint cues | In-memory provisioning status + optional evidence JSON snapshots |
+| Direct2D/GDI splash | In-process presenter inside `WinMint.Provisioning` (not a peer exe) |
+| `needsReboot` under lock | Checkpoint + keep Supervisor as Shell |
+| winget / Scoop / WSL install sequencing | Supervisor **provisioning jobs** as child processes — not `payload/agent/*.ps1` |
+| Pins / desktop finalize honesty | Post-Smoke job verticals |
 
 ## Post-Smoke product harvest (later verticals)
 
-Proven in v1; **out of Smoke** but intentional when product depth lands. Do not reintroduce cut paths.
-
 | Steal idea from (v1) | Land in v2 (later) |
 |----------------------|--------------------|
-| `keep.edge` always true; Edge noise ADMX only; no uninstall / no UI keep-remove Edge | Profile/posture + offline Edge policy — never Edge removal automation |
-| Home quiet-UX path (ContentDeliveryManager / tips collapse — Home-first) | Offline + FirstLogon quiet posture |
-| Microsoft.Coreutils (`Microsoft.Coreutils`) as baseline host CLI via winget | Payload agent baseline packages |
-| Managed `wsl.conf` + default user per distro | WSL agent module |
-| Curated Windows Terminal profiles; pwsh **7.6+** floor | `payload/media/terminal/` + SetupComplete/agent Terminal harden |
-| Explorer QoL (End Task path, folder-discovery off, extensions/hidden/long-paths baseline) | Offline tweak modules |
-| OOBE rehydration suppress / live AppX exempt lists restage-safe | Debloat durability vertical |
-| SL7 / Hyper-V smoke profile matrix + mocked WSL (`wslRuntimeValidation = skip`) | `tools/vm/` + fixtures (harness only) |
+| Edge stays; noise ADMX only; no uninstall UI | Profile/posture + offline Edge policy |
+| Home quiet-UX | Offline + FirstLogon quiet posture |
+| Microsoft.Coreutils via winget | Provisioning job baseline |
+| Managed `wsl.conf` + default user | WSL job |
+| Terminal profiles / Cascadia | `payload/media/terminal/` + jobs |
+| Explorer QoL baselines | Offline tweak modules |
+| Smoke profile matrix + mocked WSL | `tools/vm/` fixtures |
 
 ## Already in this seed (day one)
 
 | Content | Location |
 |---------|----------|
-| .NET scaffold (`WinMint.slnx`, Orchestrator / Cli / Splash, tests) | `src/`, `tests/` |
-| Brand (deduped / renamed) | `assets/brand/{mark,plate,lockup,readme}/` |
-| Cursors (`modern/`), fonts, `wallpaper/bloom.png`, account avatars, Terminal, associations | `payload/media/` |
-| Servicing stub entrypoints | `servicing/` |
-| Start / workflow / ADRs | [`START.md`](START.md), [`ARCHITECTURE.md`](ARCHITECTURE.md), [`decisions/`](decisions/) |
-
-## Shelved — companion `future-assets/` (not in seed)
-
-Keep the future-assets zip/shelf **outside** commit 1.
-
-| Content | When to copy in | Location |
-|---------|-----------------|----------|
-| Shell presets (Windhawk / YASB / Komorebi) | When shell-layer product depth lands (CLI/agent — no GUI required) | `future-assets/shell/` |
-| Picker icons (WSL / editors / desktop) | **Placeholder only** — not early; only if/when an authoring UI is scheduled | `future-assets/ui/` |
-| v1 WebView2 HTML/JS | Reference archaeology only — never product authority | `future-assets/wizard-webview2/` |
+| .NET scaffold | `src/`, `tests/` |
+| Brand | `assets/brand/` |
+| Media | `payload/media/` |
+| Servicing stubs | `servicing/` |
+| Docs / ADRs | [`START.md`](START.md), [`ARCHITECTURE.md`](ARCHITECTURE.md), [`STACK.md`](STACK.md), [`decisions/`](decisions/) |
 
 ## Never port as authority
 
-- `schemas/winmint.buildprofile.schema.json` / InstallPlan shapes  
-- `tools/ui-bridge/`, WebView2 wizard, `assets/runtime/setup/setup-shell/bin/**`  
-- SetupComplete debloat action catalog / AppX matrices for Smoke  
-- Raycast launcher / Everything search product paths (purged in v1 — do not revive)  
-- Edge uninstall (`DISM /Remove-EdgeBrowser`, Tiny11-style scrub, keep/remove Edge UI)  
+- v1 BuildProfile / InstallPlan schemas  
+- WebView2 wizard / ui-bridge  
+- SetupComplete debloat catalogs for Smoke  
+- Guest pwsh FirstLogon monolith / PreLock-as-Shell  
+- Peer Splash.exe control plane  
+- Raycast / Everything / Edge uninstall paths  
+- **OOBE soft-BSOD stack** (custom Shell + RunOnce + Autologon while `OobeInProgress`) — see v1 research `docs/research/2026-07-27-v1-oobe-softbsod-harvest.md`
 
-Update this file when a ticket harvests a new v1 path.
+Update this file when a ticket harvests a new v1 path (as behaviour reference only).

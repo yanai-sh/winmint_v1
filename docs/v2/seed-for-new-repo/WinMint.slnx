@@ -2,7 +2,7 @@
   <Folder Name="/src/">
     <Project Path="src/WinMint.Cli/WinMint.Cli.csproj" />
     <Project Path="src/WinMint.Orchestrator/WinMint.Orchestrator.csproj" />
-    <Project Path="src/WinMint.Splash/WinMint.Splash.csproj" />
+    <Project Path="src/WinMint.Provisioning/WinMint.Provisioning.csproj" />
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/WinMint.Cli.Tests/WinMint.Cli.Tests.csproj" />

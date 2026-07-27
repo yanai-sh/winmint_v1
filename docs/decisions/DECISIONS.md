@@ -18,7 +18,7 @@ Snapshot of audited decisions. Verdict vocabulary: **Keep**, **Revisit**, **Reve
 | control + status + agent state JSON files | Revisit | [004](ADR-004-contract-schema-first.md) | FirstLogon |
 | User ISO is truth | Keep | [005](ADR-005-user-iso-truth.md) | — |
 | Source ISO legally user-supplied (no silent download) | Keep | [010](ADR-010-source-iso-legal.md) | — |
-| WinMint v2 greenfield (new repo, C# orchestrator, clean-sheet contracts) | Keep | [011](ADR-011-winmint-v2-greenfield.md) | v2 |
+| WinMint v2 greenfield (C# orchestrator, guest Supervisor Shell, host Servicing pwsh, clean-sheet contracts) | Keep | [011](ADR-011-winmint-v2-greenfield.md) | v2 |
 | WebView2 wizard for v2 | Reverse | [011](ADR-011-winmint-v2-greenfield.md) | v2 |
 | BuildProfile v4 as v2 contract | Reverse | [011](ADR-011-winmint-v2-greenfield.md) | v2 |
 | Subtractive defaults + keep flags | Keep | — | — |
